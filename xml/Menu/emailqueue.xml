@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<menu>
+  <item>
+    <path>civicrm/admin/emailqueue/settings</path>
+    <page_callback>CRM_Emailqueue_Form_Settings</page_callback>
+    <title>Email Queue Settings</title>
+    <desc>Configure Email Queue System Settings</desc>
+    <access_arguments>administer CiviCRM</access_arguments>
+    <is_active>1</is_active>
+  </item>
+  <item>
+    <path>civicrm/admin/emailqueue/monitor</path>
+    <page_callback>CRM_Emailqueue_Page_Monitor</page_callback>
+    <title>Email Queue Monitor</title>
+    <desc>Monitor Email Queue Status</desc>
+    <access_arguments>administer CiviCRM</access_arguments>
+  </item>
+  <item>
+    <path>civicrm/admin/emailqueue/monitoradv</path>
+    <page_callback>CRM_Emailqueue_Page_Monitoradv</page_callback>
+    <title>Email Queue Monitor Advanced</title>
+    <desc>Monitor Email Queue Status</desc>
+    <access_arguments>administer CiviCRM</access_arguments>
+  </item>
+  <item>
+    <path>civicrm/ajax/emailqueue/action</path>
+    <title>Email Queue AJAX Handler</title>
+    <desc>AJAX endpoint for email queue operations</desc>
+    <page_callback>CRM_Emailqueue_Page_AJAX</page_callback>
+    <access_arguments>administer CiviCRM</access_arguments>
+    <is_active>1</is_active>
+  </item>
+  <item>
+    <path>civicrm/ajax/emailqueue/preview</path>
+    <title>Email Preview AJAX</title>
+    <desc>AJAX endpoint for email preview</desc>
+    <page_callback>CRM_Emailqueue_Page_AJAX</page_callback>
+    <access_arguments>administer CiviCRM</access_arguments>
+    <is_active>1</is_active>
+  </item>
+  <item>
+    <path>civicrm/ajax/emailqueue/search</path>
+    <title>Email Search AJAX</title>
+    <desc>AJAX endpoint for email search</desc>
+    <page_callback>CRM_Emailqueue_Page_AJAX</page_callback>
+    <access_arguments>administer CiviCRM</access_arguments>
+    <is_active>1</is_active>
+  </item>
+  <item>
+    <path>civicrm/emailqueue/dashboard</path>
+    <page_callback>CRM_Emailqueue_Page_Dashboard</page_callback>
+    <title>Email Queue Dashboard</title>
+    <desc>Monitor Email Dashboard</desc>
+    <access_arguments>administer CiviCRM</access_arguments>
+  </item>
+</menu>

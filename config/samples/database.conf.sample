@@ -1,0 +1,59 @@
+# Email Queue Database Configuration Sample
+# Copy this file to database.conf and adjust settings for your environment
+
+[database]
+# Database connection settings
+host = localhost
+port = 3306
+name = emailqueue
+user = emailqueue_user
+password = your_secure_password
+
+# Connection options
+charset = utf8mb4
+timeout = 30
+ssl_mode = PREFERRED
+
+[processing]
+# Email processing settings
+batch_size = 50
+retry_attempts = 3
+retry_delay = 5
+max_email_size = 25
+
+# Cleanup settings
+cleanup_days = 90
+log_retention_days = 30
+
+[performance]
+# Performance tuning
+enable_query_cache = true
+max_connections = 100
+query_timeout = 30
+
+# Monitoring
+enable_slow_query_log = true
+slow_query_threshold = 2.0
+
+[security]
+# Security settings
+enable_ssl = false
+ssl_cert_path = /path/to/cert.pem
+ssl_key_path = /path/to/key.pem
+ssl_ca_path = /path/to/ca.pem
+
+# Access control
+allowed_hosts = 127.0.0.1,localhost
+enable_firewall = false
+
+[logging]
+# Logging configuration
+log_level = info
+log_file = /var/log/emailqueue/emailqueue.log
+max_log_size = 100MB
+log_rotation = daily
+
+# Error handling
+enable_error_alerts = true
+alert_email = admin@yourorg.com
+critical_error_threshold = 5

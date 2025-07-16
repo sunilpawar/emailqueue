@@ -1,0 +1,256 @@
+version: '3.8'
+
+services:
+  # CiviCRM Application Server
+  civicrm:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: emailqueue_civicrm
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./:/var/www/html/sites/default/files/civicrm/ext/com.yourorg.emailqueue
+      - civicrm_files:/var/www/html/sites/default/files
+      - civicrm_uploads:/var/www/html/sites/default/files/civicrm/upload
+    environment:
+      - APACHE_DOCUMENT_ROOT=/var/www/html
+      - CIVICRM_DB_HOST=civicrm_db
+      - CIVICRM_DB_NAME=civicrm
+      - CIVICRM_DB_USER=civicrm
+      - CIVICRM_DB_PASS=civicrm123
+      - EMAILQUEUE_DB_HOST=emailqueue_db
+      - EMAILQUEUE_DB_NAME=emailqueue
+      - EMAILQUEUE_DB_USER=emailqueue
+      - EMAILQUEUE_DB_PASS=emailqueue123
+      - XDEBUG_CONFIG=client_host=host.docker.internal
+    depends_on:
+      - civicrm_db
+      - emailqueue_db
+      - redis
+    networks:
+      - emailqueue_network
+
+  # CiviCRM Database
+  civicrm_db:
+    image: mysql:8.0
+    container_name: emailqueue_civicrm_db
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpass123
+      - MYSQL_DATABASE=civicrm
+      - MYSQL_USER=civicrm
+      - MYSQL_PASSWORD=civicrm123
+    volumes:
+      - civicrm_db_data:/var/lib/mysql
+      - ./docker/mysql/civicrm-init.sql:/docker-entrypoint-initdb.d/01-civicrm-init.sql
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - emailqueue_network
+
+  # Email Queue Database
+  emailqueue_db:
+    image: mysql:8.0
+    container_name: emailqueue_db
+    ports:
+      - "3308:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpass123
+      - MYSQL_DATABASE=emailqueue
+      - MYSQL_USER=emailqueue
+      - MYSQL_PASSWORD=emailqueue123
+    volumes:
+      - emailqueue_db_data:/var/lib/mysql
+      - ./docker/mysql/emailqueue-init.sql:/docker-entrypoint-initdb.d/01-emailqueue-init.sql
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - emailqueue_network
+
+  # Redis for caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: emailqueue_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - emailqueue_network
+
+  # MailHog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: emailqueue_mailhog
+    ports:
+      - "8025:8025"  # Web UI
+      - "1025:1025"  # SMTP
+    networks:
+      - emailqueue_network
+
+  # Adminer for database management
+  adminer:
+    image: adminer:latest
+    container_name: emailqueue_adminer
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=civicrm_db
+    networks:
+      - emailqueue_network
+
+  # PhpMyAdmin as alternative to Adminer
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: emailqueue_phpmyadmin
+    ports:
+      - "8082:80"
+    environment:
+      - PMA_ARBITRARY=1
+      - PMA_HOST=civicrm_db
+      - PMA_USER=root
+      - PMA_PASSWORD=rootpass123
+    networks:
+      - emailqueue_network
+
+  # Elasticsearch for advanced search (optional)
+  elasticsearch:
+    image: elasticsearch:7.17.9
+    container_name: emailqueue_elasticsearch
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - emailqueue_network
+    profiles:
+      - advanced
+
+  # Kibana for Elasticsearch visualization (optional)
+  kibana:
+    image: kibana:7.17.9
+    container_name: emailqueue_kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - emailqueue_network
+    profiles:
+      - advanced
+
+  # Grafana for monitoring (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: emailqueue_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - emailqueue_network
+    profiles:
+      - monitoring
+
+  # Prometheus for metrics collection (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: emailqueue_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - emailqueue_network
+    profiles:
+      - monitoring
+
+  # Node Exporter for system metrics (optional)
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: emailqueue_node_exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - emailqueue_network
+    profiles:
+      - monitoring
+
+  # Nginx for load balancing (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: emailqueue_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - civicrm
+    networks:
+      - emailqueue_network
+    profiles:
+      - production
+
+volumes:
+  civicrm_db_data:
+    driver: local
+  emailqueue_db_data:
+    driver: local
+  civicrm_files:
+    driver: local
+  civicrm_uploads:
+    driver: local
+  redis_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+networks:
+  emailqueue_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Development commands:
+# docker-compose up -d                    # Start basic services
+# docker-compose --profile advanced up -d # Start with Elasticsearch
+# docker-compose --profile monitoring up -d # Start with monitoring
+# docker-compose --profile production up -d # Start with load balancer
+# docker-compose logs -f civicrm          # View CiviCRM logs
+# docker-compose exec civicrm bash        # Access CiviCRM container
+# docker-compose exec civicrm_db mysql -u root -p # Access database

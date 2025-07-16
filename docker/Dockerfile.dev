@@ -1,0 +1,74 @@
+# Development Docker environment for CiviCRM Email Queue Extension
+FROM php:8.1-apache
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    mysql-client \
+    nodejs \
+    npm \
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Install additional PHP extensions for CiviCRM
+RUN docker-php-ext-install mysqli pdo pdo_mysql
+
+# Enable Apache modules
+RUN a2enmod rewrite ssl
+
+# Set PHP configuration for development
+RUN echo "memory_limit=512M" > /usr/local/etc/php/conf.d/memory.ini \
+    && echo "upload_max_filesize=32M" > /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "post_max_size=32M" >> /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "max_execution_time=300" > /usr/local/etc/php/conf.d/execution.ini \
+    && echo "display_errors=On" > /usr/local/etc/php/conf.d/errors.ini \
+    && echo "log_errors=On" >> /usr/local/etc/php/conf.d/errors.ini
+
+# Install Xdebug for development
+RUN pecl install xdebug \
+    && docker-php-ext-enable xdebug \
+    && echo "xdebug.mode=debug" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini \
+    && echo "xdebug.start_with_request=yes" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini \
+    && echo "xdebug.client_host=host.docker.internal" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini \
+    && echo "xdebug.client_port=9003" >> /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+
+# Install CV (CiviCRM CLI tool)
+RUN curl -LsS https://download.civicrm.org/cv/cv.phar -o /usr/local/bin/cv \
+    && chmod +x /usr/local/bin/cv
+
+# Create directory for CiviCRM extensions
+RUN mkdir -p /var/www/html/sites/default/files/civicrm/ext
+
+# Set proper permissions
+RUN chown -R www-data:www-data /var/www/html
+
+# Copy Apache virtual host configuration
+COPY docker/apache-vhost.conf /etc/apache2/sites-available/000-default.conf
+
+# Copy entrypoint script
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ports
+EXPOSE 80 443
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["apache2-foreground"]
+
+# Development environment labels
+LABEL maintainer="your-email@example.com"
+LABEL description="CiviCRM Email Queue Extension Development Environment"
+LABEL version="1.0.0"
