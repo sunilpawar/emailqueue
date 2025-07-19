@@ -5,6 +5,8 @@
  */
 class CRM_Emailqueue_BAO_Queue {
 
+  private static $mailerCache = [];
+
   /**
    * Get database connection for email queue.
    */
@@ -153,6 +155,7 @@ class CRM_Emailqueue_BAO_Queue {
       $stmt->execute();
 
       $emails = $stmt->fetchAll();
+      // Mailer class:
 
       foreach ($emails as $email) {
         self::processEmail($email);
@@ -170,6 +173,7 @@ class CRM_Emailqueue_BAO_Queue {
    * Process individual email.
    */
   protected static function processEmail($email) {
+    global $skipAlterMailerHook;
     try {
       $pdo = self::getQueueConnection();
 
@@ -180,6 +184,7 @@ class CRM_Emailqueue_BAO_Queue {
       $smtpParams = self::getSmtpSettings();
 
       // Create actual mailer
+      $skipAlterMailerHook = TRUE;
       $mailer = self::createSmtpMailer($smtpParams);
 
       // Prepare email data
@@ -291,9 +296,15 @@ class CRM_Emailqueue_BAO_Queue {
    * Create SMTP mailer.
    */
   protected static function createSmtpMailer($params) {
+    $cacheKey = __FUNCTION__;
     // This would create the actual SMTP mailer using CiviCRM's mail system
     // We bypass the alterMailer hook by creating the mailer directly
+    if (isset(self::$mailerCache[$cacheKey])) {
+      return self::$mailerCache[$cacheKey];
+    }
     $originalMailer = CRM_Utils_Mail::createMailer();
+    self::$mailerCache[$cacheKey] = $originalMailer;
+
     return $originalMailer;
   }
 

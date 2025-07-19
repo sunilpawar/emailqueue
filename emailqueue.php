@@ -70,10 +70,16 @@ function emailqueue_civicrm_enable(): void {
  * We intercept this to use our email queue system instead.
  */
 function emailqueue_civicrm_alterMailer(&$mailer, $driver, $params) {
+  global $skipAlterMailerHook;
   // Check if email queue is enabled
   $isEnabled = Civi::settings()->get('emailqueue_enabled');
-
   if ($isEnabled) {
+    // $skipAlterMailerHook is used when emails processed by this extension.
+    if (isset($skipAlterMailerHook) && $skipAlterMailerHook) {
+      // If we are skipping this hook, just return the original mailer
+      CRM_Core_Error::debug_log_message('Skipping emailqueue_civicrm_alterMailer hook');
+      return;
+    }
     // Replace the mailer with our custom email queue mailer
     $mailer = new CRM_Emailqueue_Mailer_QueueMailer($params);
   }

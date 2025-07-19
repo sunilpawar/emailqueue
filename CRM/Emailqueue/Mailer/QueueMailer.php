@@ -37,6 +37,11 @@ class CRM_Emailqueue_Mailer_QueueMailer {
           'retry_count' => 0
         ];
 
+        $priorityDetected = CRM_Emailqueue_Utils_PriorityDetector::detectPriority($emailData);
+        if ($priorityDetected !== NULL) {
+          $emailData['priority'] = $priorityDetected;
+        }
+
         CRM_Emailqueue_BAO_Queue::addToQueue($emailData);
       }
 

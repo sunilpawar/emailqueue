@@ -132,7 +132,7 @@
 
       <div class="search-actions">
         <button type="submit" class="button button-primary">{ts}Search{/ts}</button>
-        <a href="{crmURL p='civicrm/admin/emailqueue/monitor'}" class="button button-secondary">{ts}Clear Filters{/ts}</a>
+        <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv'}" class="button button-secondary">{ts}Clear Filters{/ts}</a>
         <button type="button" id="export-filtered-btn" class="button button-info">{ts}Export Filtered{/ts}</button>
       </div>
     </form>
@@ -254,13 +254,13 @@
           </div>
           <div class="pagination-nav">
             {if $pagination.current_page > 1}
-              <a href="{crmURL p='civicrm/admin/emailqueue/monitor' q="page=`$pagination.current_page-1`"}" class="page-btn">{ts}Previous{/ts}</a>
+              <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv' q="page=`$pagination.current_page-1`"}" class="page-btn">{ts}Previous{/ts}</a>
             {/if}
 
             {* Page numbers logic here *}
             {for $i=1 to $pagination.total_pages}
               {if $i <= 3 or $i > $pagination.total_pages-3 or ($i >= $pagination.current_page-2 and $i <= $pagination.current_page+2)}
-                <a href="{crmURL p='civicrm/admin/emailqueue/monitor' q="page=$i"}"
+                <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv' q="page=$i"}"
                    class="page-btn {if $i == $pagination.current_page}active{/if}">{$i}</a>
               {elseif $i == 4 or $i == $pagination.total_pages-3}
                 <span class="page-btn">...</span>
@@ -268,7 +268,7 @@
             {/for}
 
             {if $pagination.current_page < $pagination.total_pages}
-              <a href="{crmURL p='civicrm/admin/emailqueue/monitor' q="page=`$pagination.current_page+1`"}" class="page-btn">{ts}Next{/ts}</a>
+              <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv' q="page=`$pagination.current_page+1`"}" class="page-btn">{ts}Next{/ts}</a>
             {/if}
           </div>
         </div>
