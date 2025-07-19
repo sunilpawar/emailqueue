@@ -53,4 +53,11 @@
     <desc>Monitor Email Dashboard</desc>
     <access_arguments>administer CiviCRM</access_arguments>
   </item>
+  <item>
+    <path>civicrm/emailqueue/dashboard-new</path>
+    <page_callback>CRM_Emailqueue_Page_DashboardNew</page_callback>
+    <title>Email Queue Dashboard</title>
+    <desc>Monitor Email Dashboard</desc>
+    <access_arguments>administer CiviCRM</access_arguments>
+  </item>
 </menu>

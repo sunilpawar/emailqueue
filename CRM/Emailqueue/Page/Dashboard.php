@@ -13,13 +13,31 @@ class CRM_Emailqueue_Page_Dashboard extends CRM_Core_Page {
       CRM_Core_Error::statusBounce(ts('You do not have permission to access this page.'));
     }
 
+    CRM_Core_Resources::singleton()->addScriptUrl('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js');
+
+    // Add custom dashboard JavaScript
+    CRM_Core_Resources::singleton()->addScriptFile(E::LONG_NAME, 'js/dashboard_chart.js');
+
     try {
       // Get comprehensive metrics
       $this->assign('dashboardData', $this->getDashboardData());
-      $this->assign('charts', $this->getChartData());
+
+      // Get chart data
+      $chartData = $this->getChartData();
+      $this->assign('charts', $chartData);
+
+      // Convert chart data to JSON for JavaScript
+      $chartDataJson = json_encode($chartData, JSON_NUMERIC_CHECK);
+      $this->assign('chartDataJson', $chartDataJson);
       $this->assign('alerts', $this->getSystemAlerts());
       $this->assign('recommendations', $this->getActionableRecommendations());
 
+      // Pass data to JavaScript
+      CRM_Core_Resources::singleton()->addVars('emailqueue', [
+        'dashboardChartDataJson' => $chartDataJson,
+        'refreshUrl' => CRM_Utils_System::url('civicrm/admin/emailqueue/dashboard', 'reset=1'),
+        'apiEndpoint' => CRM_Utils_System::url('civicrm/ajax/rest')
+      ]);
     }
     catch (Exception $e) {
       CRM_Core_Session::setStatus(E::ts('Error loading dashboard: %1', [1 => $e->getMessage()]), E::ts('Dashboard Error'), 'error');

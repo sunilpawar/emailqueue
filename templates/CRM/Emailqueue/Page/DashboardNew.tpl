@@ -71,7 +71,8 @@
         <div class="card-body">
           <div class="health-score">
             <div class="score-circle" data-score="{$dashboardData.queue_health.score}">
-              <span class="score-value">{$dashboardData.queue_health.score}</span>
+              <canvas width="120" height="120" id="healthScoreCanvas"></canvas>
+              <span class="score-value">{$dashboardData.queue_health.score}%</span>
             </div>
           </div>
           {if $dashboardData.queue_health.factors}
@@ -184,15 +185,24 @@
         <div class="chart-header">
           <h3 class="chart-title">{ts}Email Volume (24 Hours){/ts}</h3>
           <div class="chart-controls">
-            <select class="chart-timeframe">
+            <select class="chart-timeframe" id="timeRange">
               <option value="24h">{ts}Last 24 Hours{/ts}</option>
               <option value="7d">{ts}Last 7 Days{/ts}</option>
               <option value="30d">{ts}Last 30 Days{/ts}</option>
             </select>
+            <button class="btn btn-sm btn-outline-primary" id="refreshCharts">
+              <i class="fas fa-sync"></i>
+            </button>
           </div>
         </div>
         <div class="chart-body">
-          <canvas id="volumeChart" width="400" height="200"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            <span>{ts}Loading chart data...{/ts}</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="volumeChart" style="max-height: 300px;"></canvas>
+          </div>
         </div>
       </div>
 
@@ -200,9 +210,19 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3 class="chart-title">{ts}Status Distribution{/ts}</h3>
+          <div class="chart-controls">
+            <button class="btn btn-sm btn-outline-secondary" id="exportCharts">
+              <i class="fas fa-download"></i> {ts}Export{/ts}
+            </button>
+          </div>
         </div>
         <div class="chart-body">
-          <canvas id="statusChart" width="300" height="300"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="statusChart" style="max-height: 250px;"></canvas>
+          </div>
         </div>
       </div>
 
@@ -210,9 +230,27 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3 class="chart-title">{ts}Performance Trend{/ts}</h3>
+          <div class="chart-controls">
+            <div class="auto-refresh-toggle">
+              <label>
+                <input type="checkbox" id="autoRefresh" checked>
+                {ts}Auto-refresh{/ts}
+              </label>
+              <select id="refreshInterval">
+                <option value="1">1 min</option>
+                <option value="5" selected>5 min</option>
+                <option value="10">10 min</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="chart-body">
-          <canvas id="performanceChart" width="400" height="200"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="performanceChart" style="max-height: 300px;"></canvas>
+          </div>
         </div>
       </div>
 
@@ -220,12 +258,38 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3 class="chart-title">{ts}Error Rate{/ts}</h3>
+          <div class="chart-controls">
+            <span class="chart-info">
+              <i class="fas fa-info-circle"></i>
+              {ts}Errors per hour{/ts}
+            </span>
+          </div>
         </div>
         <div class="chart-body">
-          <canvas id="errorChart" width="400" height="200"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="errorChart" style="max-height: 250px;"></canvas>
+          </div>
         </div>
       </div>
 
+    </div>
+  </div>
+
+  {* Action Buttons Section *}
+  <div class="actions-section">
+    <div class="action-buttons">
+      <button class="btn btn-success" id="processQueue">
+        <i class="fas fa-play"></i> {ts}Process Queue{/ts}
+      </button>
+      <button class="btn btn-warning" id="clearFailed">
+        <i class="fas fa-trash"></i> {ts}Clear Failed{/ts}
+      </button>
+      <button class="btn btn-info" id="optimizeDb">
+        <i class="fas fa-database"></i> {ts}Optimize DB{/ts}
+      </button>
     </div>
   </div>
 
@@ -296,7 +360,6 @@
   {/if}
 
 </div>
-
 
 {* Dashboard Styles *}
 {literal}
@@ -854,159 +917,158 @@
   </style>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-<script>
-  CRM.$(function($) {
-    // Initialize dashboard
-    initializeDashboard();
+  <script>
+    CRM.$(function($) {
+      // Initialize dashboard
+      initializeDashboard();
 
-    // Auto-refresh every 30 seconds
-    setInterval(refreshDashboard, 30000);
+      // Auto-refresh every 30 seconds
+      setInterval(refreshDashboard, 30000);
 
-    // Manual refresh button
-    $('#refresh-dashboard').click(function() {
-      refreshDashboard();
-    });
+      // Manual refresh button
+      $('#refresh-dashboard').click(function() {
+        refreshDashboard();
+      });
 
-    function initializeDashboard() {
-      // Wait for Chart.js to load
-      if (typeof Chart !== 'undefined') {
-        // Initialize charts with data from PHP
-        window.chartData = {/literal}{$chartDataJson}{literal};
+      function initializeDashboard() {
+        // Wait for Chart.js to load
+        if (typeof Chart !== 'undefined') {
+          // Initialize charts with data from PHP
+          window.chartData = {/literal}{$chartDataJson}{literal};
 
-        // Initialize health score first
-        initializeHealthScore();
+          // Initialize health score first
+          initializeHealthScore();
 
-        // Then initialize other charts with a delay to ensure DOM is ready
-        setTimeout(function() {
-          if (window.initializeCharts && !window.chartsInitialized) {
-            window.initializeCharts();
-          }
-        }, 200);
-      } else {
-        // Retry after a short delay
-        setTimeout(initializeDashboard, 500);
+          // Then initialize other charts with a delay to ensure DOM is ready
+          setTimeout(function() {
+            if (window.initializeCharts && !window.chartsInitialized) {
+              window.initializeCharts();
+            }
+          }, 200);
+        } else {
+          // Retry after a short delay
+          setTimeout(initializeDashboard, 500);
+        }
+
+        // Bind action buttons
+        bindActionButtons();
       }
 
-      // Bind action buttons
-      bindActionButtons();
-    }
+      function refreshDashboard() {
+        // Show loading state
+        $('.refresh-indicator').addClass('active');
+        $('.chart-loading').show();
+        $('.chart-container').css('opacity', '0.5');
 
-    function refreshDashboard() {
-      // Show loading state
-      $('.refresh-indicator').addClass('active');
-      $('.chart-loading').show();
-      $('.chart-container').css('opacity', '0.5');
+        // Reload page data
+        setTimeout(function() {
+          location.reload();
+        }, 1000);
+      }
 
-      // Reload page data
-      setTimeout(function() {
-        location.reload();
-      }, 1000);
-    }
+      function initializeHealthScore() {
+        var scoreElement = $('.score-circle[data-score]');
+        if (scoreElement.length > 0) {
+          var score = parseInt(scoreElement.data('score')) || 0;
+          var canvas = document.getElementById('healthScoreCanvas');
 
-    function initializeHealthScore() {
-      var scoreElement = $('.score-circle[data-score]');
-      if (scoreElement.length > 0) {
-        var score = parseInt(scoreElement.data('score')) || 0;
-        var canvas = document.getElementById('healthScoreCanvas');
-
-        if (canvas) {
-          var ctx = canvas.getContext('2d');
-          drawHealthScore(ctx, score);
+          if (canvas) {
+            var ctx = canvas.getContext('2d');
+            drawHealthScore(ctx, score);
+          }
         }
       }
-    }
 
-    function drawHealthScore(ctx, score) {
-      var canvas = ctx.canvas;
-      var centerX = canvas.width / 2;
-      var centerY = canvas.height / 2;
-      var radius = 45;
+      function drawHealthScore(ctx, score) {
+        var canvas = ctx.canvas;
+        var centerX = canvas.width / 2;
+        var centerY = canvas.height / 2;
+        var radius = 45;
 
-      // Clear canvas
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Background circle
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-      ctx.strokeStyle = '#e9ecef';
-      ctx.lineWidth = 8;
-      ctx.stroke();
+        // Background circle
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#e9ecef';
+        ctx.lineWidth = 8;
+        ctx.stroke();
 
-      // Progress circle
-      var angle = (score / 100) * 2 * Math.PI;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, -Math.PI / 2, angle - Math.PI / 2);
-      ctx.strokeStyle = getHealthColor(score);
-      ctx.lineWidth = 8;
-      ctx.lineCap = 'round';
-      ctx.stroke();
-    }
-
-    function getHealthColor(score) {
-      if (score >= 80) return '#28a745';
-      if (score >= 60) return '#ffc107';
-      if (score >= 40) return '#fd7e14';
-      return '#dc3545';
-    }
-
-    function bindActionButtons() {
-      $('#processQueue').click(function(e) {
-        e.preventDefault();
-        processQueue();
-      });
-
-      $('#clearFailed').click(function(e) {
-        e.preventDefault();
-        clearFailedEmails();
-      });
-
-      $('#optimizeDb').click(function(e) {
-        e.preventDefault();
-        optimizeDatabase();
-      });
-    }
-
-    function processQueue() {
-      if (typeof CRM !== 'undefined' && CRM.api3) {
-        CRM.api3('EmailQueue', 'process', {})
-          .done(function(result) {
-            CRM.alert('Queue processing started', 'Success', 'success');
-            setTimeout(refreshDashboard, 2000);
-          })
-          .fail(function() {
-            CRM.alert('Failed to process queue', 'Error', 'error');
-          });
+        // Progress circle
+        var angle = (score / 100) * 2 * Math.PI;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, -Math.PI / 2, angle - Math.PI / 2);
+        ctx.strokeStyle = getHealthColor(score);
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
+        ctx.stroke();
       }
-    }
 
-    function clearFailedEmails() {
-      if (confirm('Are you sure you want to clear all failed emails?')) {
+      function getHealthColor(score) {
+        if (score >= 80) return '#28a745';
+        if (score >= 60) return '#ffc107';
+        if (score >= 40) return '#fd7e14';
+        return '#dc3545';
+      }
+
+      function bindActionButtons() {
+        $('#processQueue').click(function(e) {
+          e.preventDefault();
+          processQueue();
+        });
+
+        $('#clearFailed').click(function(e) {
+          e.preventDefault();
+          clearFailedEmails();
+        });
+
+        $('#optimizeDb').click(function(e) {
+          e.preventDefault();
+          optimizeDatabase();
+        });
+      }
+
+      function processQueue() {
         if (typeof CRM !== 'undefined' && CRM.api3) {
-          CRM.api3('EmailQueue', 'clearfailed', {})
+          CRM.api3('EmailQueue', 'process', {})
             .done(function(result) {
-              CRM.alert('Failed emails cleared', 'Success', 'success');
+              CRM.alert('Queue processing started', 'Success', 'success');
               setTimeout(refreshDashboard, 2000);
             })
             .fail(function() {
-              CRM.alert('Failed to clear failed emails', 'Error', 'error');
+              CRM.alert('Failed to process queue', 'Error', 'error');
             });
         }
       }
-    }
 
-    function optimizeDatabase() {
-      if (typeof CRM !== 'undefined' && CRM.api3) {
-        CRM.api3('EmailqueueAdmin', 'optimizeperformance', {})
-          .done(function(result) {
-            CRM.alert('Database optimization completed', 'Success', 'success');
-            setTimeout(refreshDashboard, 2000);
-          })
-          .fail(function() {
-            CRM.alert('Database optimization failed', 'Error', 'error');
-          });
+      function clearFailedEmails() {
+        if (confirm('Are you sure you want to clear all failed emails?')) {
+          if (typeof CRM !== 'undefined' && CRM.api3) {
+            CRM.api3('EmailQueue', 'clearfailed', {})
+              .done(function(result) {
+                CRM.alert('Failed emails cleared', 'Success', 'success');
+                setTimeout(refreshDashboard, 2000);
+              })
+              .fail(function() {
+                CRM.alert('Failed to clear failed emails', 'Error', 'error');
+              });
+          }
+        }
       }
-    }
-  });
-</script>
-{/literal}
 
+      function optimizeDatabase() {
+        if (typeof CRM !== 'undefined' && CRM.api3) {
+          CRM.api3('EmailqueueAdmin', 'optimizeperformance', {})
+            .done(function(result) {
+              CRM.alert('Database optimization completed', 'Success', 'success');
+              setTimeout(refreshDashboard, 2000);
+            })
+            .fail(function() {
+              CRM.alert('Database optimization failed', 'Error', 'error');
+            });
+        }
+      }
+    });
+  </script>
+{/literal}
