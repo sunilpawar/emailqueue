@@ -22,7 +22,7 @@
       <button class="btn btn-primary" id="refresh-dashboard">
         <i class="fas fa-sync"></i> {ts}Refresh{/ts}
       </button>
-      <a href="{crmURL p='civicrm/admin/emailqueue/monitor'}" class="btn btn-secondary">
+      <a href="{crmURL p='civicrm/emailqueue/monitor'}" class="btn btn-secondary">
         <i class="fas fa-list"></i> {ts}Queue Monitor{/ts}
       </a>
       <a href="{crmURL p='civicrm/admin/emailqueue/settings'}" class="btn btn-outline-secondary">
@@ -71,7 +71,8 @@
         <div class="card-body">
           <div class="health-score">
             <div class="score-circle" data-score="{$dashboardData.queue_health.score}">
-              <span class="score-value">{$dashboardData.queue_health.score}</span>
+              <canvas width="120" height="120" id="healthScoreCanvas"></canvas>
+              <span class="score-value">{$dashboardData.queue_health.score}%</span>
             </div>
           </div>
           {if $dashboardData.queue_health.factors}
@@ -184,15 +185,24 @@
         <div class="chart-header">
           <h3 class="chart-title">{ts}Email Volume (24 Hours){/ts}</h3>
           <div class="chart-controls">
-            <select class="chart-timeframe">
+            <select class="chart-timeframe" id="timeRange">
               <option value="24h">{ts}Last 24 Hours{/ts}</option>
               <option value="7d">{ts}Last 7 Days{/ts}</option>
               <option value="30d">{ts}Last 30 Days{/ts}</option>
             </select>
+            <button class="btn btn-sm btn-outline-primary" id="refreshCharts">
+              <i class="fas fa-sync"></i>
+            </button>
           </div>
         </div>
         <div class="chart-body">
-          <canvas id="volumeChart" width="400" height="200"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            <span>{ts}Loading chart data...{/ts}</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="volumeChart" style="max-height: 300px;"></canvas>
+          </div>
         </div>
       </div>
 
@@ -200,9 +210,19 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3 class="chart-title">{ts}Status Distribution{/ts}</h3>
+          <div class="chart-controls">
+            <button class="btn btn-sm btn-outline-secondary" id="exportCharts">
+              <i class="fas fa-download"></i> {ts}Export{/ts}
+            </button>
+          </div>
         </div>
         <div class="chart-body">
-          <canvas id="statusChart" width="300" height="300"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="statusChart" style="max-height: 250px;"></canvas>
+          </div>
         </div>
       </div>
 
@@ -210,9 +230,27 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3 class="chart-title">{ts}Performance Trend{/ts}</h3>
+          <div class="chart-controls">
+            <div class="auto-refresh-toggle">
+              <label>
+                <input type="checkbox" id="autoRefresh" checked>
+                {ts}Auto-refresh{/ts}
+              </label>
+              <select id="refreshInterval">
+                <option value="1">1 min</option>
+                <option value="5" selected>5 min</option>
+                <option value="10">10 min</option>
+              </select>
+            </div>
+          </div>
         </div>
         <div class="chart-body">
-          <canvas id="performanceChart" width="400" height="200"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="performanceChart" style="max-height: 300px;"></canvas>
+          </div>
         </div>
       </div>
 
@@ -220,12 +258,38 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3 class="chart-title">{ts}Error Rate{/ts}</h3>
+          <div class="chart-controls">
+            <span class="chart-info">
+              <i class="fas fa-info-circle"></i>
+              {ts}Errors per hour{/ts}
+            </span>
+          </div>
         </div>
         <div class="chart-body">
-          <canvas id="errorChart" width="400" height="200"></canvas>
+          <div class="chart-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+          </div>
+          <div class="chart-container">
+            <canvas id="errorChart" style="max-height: 250px;"></canvas>
+          </div>
         </div>
       </div>
 
+    </div>
+  </div>
+
+  {* Action Buttons Section *}
+  <div class="actions-section">
+    <div class="action-buttons">
+      <button class="btn btn-success" id="processQueue">
+        <i class="fas fa-play"></i> {ts}Process Queue{/ts}
+      </button>
+      <button class="btn btn-warning" id="clearFailed">
+        <i class="fas fa-trash"></i> {ts}Clear Failed{/ts}
+      </button>
+      <button class="btn btn-info" id="optimizeDb">
+        <i class="fas fa-database"></i> {ts}Optimize DB{/ts}
+      </button>
     </div>
   </div>
 

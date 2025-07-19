@@ -18,6 +18,16 @@ function civicrm_api3_emailqueue_admin_healthcheck($params) {
   }
 }
 
+function _civicrm_api3_emailqueue_admin_getmetrics_spec(&$spec) {
+  $spec['time_range'] = [
+    'type' => CRM_Utils_Type::T_STRING,
+    'name' => 'time_range',
+    'title' => 'Time Range',
+    'api.default' => '24 HOUR',
+    'description' => 'Time Range for metrics, e.g., "24 HOUR", "7 DAY", "30 DAY".',
+  ];
+}
+
 /**
  * EmailqueueAdmin.Getmetrics API
  *
@@ -28,15 +38,31 @@ function civicrm_api3_emailqueue_admin_healthcheck($params) {
  * @throws API_Exception
  */
 function civicrm_api3_emailqueue_admin_getmetrics($params) {
+  if (empty($params['time_range'])) {
+    $params['time_range'] = '24 HOUR'; // Default to last 24 hours
+  }
+  $mapping = [
+    '1h' => '1 HOUR',
+    '2h' => '2 HOUR',
+    '6h' => '6 HOUR',
+    '24h' => '24 HOUR',
+    '7d' => '7 DAY',
+    '30d' => '30 DAY',
+    '1m' => '1 MONTH',
+    '3m' => '3 MONTHS',
+    '6m' => '6 MONTHS',
+    '1y' => '1 YEAR',
+  ];
+  $params['time_range'] = $mapping[$params['time_range']] ?? $params['time_range'];
   try {
     $metrics = [
-      'queue_stats' => CRM_Emailqueue_BAO_Queue::getQueueStats(),
-      'processing_metrics' => CRM_Emailqueue_Utils_Performance::getProcessingMetrics(),
-      'database_metrics' => CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance(),
-      'error_stats' => CRM_Emailqueue_Utils_ErrorHandler::getErrorStats(),
-      'system_health' => CRM_Emailqueue_Utils_Performance::getSystemHealthCheck()
+      'queue_stats' => CRM_Emailqueue_BAO_Queue::getQueueStats($params['time_range']),
+      'processing_metrics' => CRM_Emailqueue_Utils_Performance::getProcessingMetrics($params['time_range']),
+      'database_metrics' => CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance($params['time_range']),
+      'error_stats' => CRM_Emailqueue_Utils_ErrorHandler::getErrorStats($params['time_range']),
+      'system_health' => CRM_Emailqueue_Utils_Performance::getSystemHealthCheck($params['time_range']),
+      'charts' => CRM_Emailqueue_Page_DashboardNew::getChartData($params['time_range']),
     ];
-
     return civicrm_api3_create_success($metrics);
   } catch (Exception $e) {
     throw new API_Exception('Failed to get metrics: ' . $e->getMessage());

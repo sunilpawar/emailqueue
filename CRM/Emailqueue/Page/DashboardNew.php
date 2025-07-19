@@ -25,7 +25,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       $this->assign('dashboardData', $dashboardData);
 
       // Get chart data
-      $chartData = $this->getChartData();
+      $chartData = self::getChartData();
       $this->assign('charts', $chartData);
 
       // Convert chart data to JSON for JavaScript
@@ -86,20 +86,20 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     try {
       // Basic queue statistics
-      $data['queue_stats'] = $this->getQueueStats();
+      $data['queue_stats'] = CRM_Emailqueue_BAO_Queue::getQueueStats();
 
       // Processing metrics
-      $data['processing_metrics'] = CRM_Emailqueue_Utils_Performance::getProcessingMetrics();$this->getProcessingMetrics();
+      $data['processing_metrics'] = CRM_Emailqueue_Utils_Performance::getProcessingMetrics();
 
       // Database performance
-      $data['database_metrics'] = $this->getDatabaseMetrics();
+      $data['database_metrics'] = CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance();
 
       // System health
-      $data['system_health'] = $this->getSystemHealthCheck();
-      $data['system_status'] = $data['system_health']['overall_status'] ?? 'unknown';
+      $data['system_health'] = CRM_Emailqueue_Utils_Performance::getSystemHealthCheck();
+      $data['system_status'] = $data['system_health']['overall_status'] ?? 'unknow';
 
       // Error statistics
-      $data['error_stats'] = $this->getErrorStats();
+      $data['error_stats'] = CRM_Emailqueue_Utils_ErrorHandler::getErrorStats('24 HOUR');
 
       // Recent activity
       $data['recent_activity'] = $this->getRecentActivity();
@@ -404,28 +404,28 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get chart data for visualizations.
    */
-  protected function getChartData() {
+  public static function getChartData($timeframe = '24 HOUR') {
     $charts = [];
 
     try {
       // Email volume over time (last 24 hours)
-      $charts['volume_24h'] = $this->getVolumeChart('24 HOUR');
+      $charts['volume_24h'] = self::getVolumeChart($timeframe);
 
       // Email status distribution
-      $charts['status_distribution'] = $this->getStatusDistribution();
+      $charts['status_distribution'] = self::getStatusDistribution($timeframe);
 
       // Processing performance
-      $charts['performance_trend'] = $this->getPerformanceTrend();
+      $charts['performance_trend'] = self::getPerformanceTrend($timeframe);
 
       // Error rate trend
-      $charts['error_trend'] = $this->getErrorTrend();
+      $charts['error_trend'] = self::getErrorTrend($timeframe);
 
       // Priority distribution
-      $charts['priority_distribution'] = $this->getPriorityDistribution();
+      $charts['priority_distribution'] = self::getPriorityDistribution($timeframe);
 
     }
     catch (Exception $e) {
-      error_log('Chart data error: ' . $e->getMessage());
+      CRM_Emailqueue_Utils_ErrorHandler::handleException($e);
     }
 
     return $charts;
@@ -434,7 +434,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get volume chart data.
    */
-  protected function getVolumeChart($timeframe) {
+  public static function getVolumeChart($timeframe) {
     $chartData = [];
 
     try {
@@ -480,11 +480,11 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get status distribution for pie chart.
    */
-  protected function getStatusDistribution() {
+  public static function getStatusDistribution($timeframe) {
     $distribution = [];
 
     try {
-      $stats = CRM_Emailqueue_BAO_Queue::getQueueStats();
+      $stats = CRM_Emailqueue_BAO_Queue::getQueueStats($timeframe);
       // $this->getQueueStats();
 
       $statusColors = [
@@ -496,7 +496,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       ];
 
       foreach ($stats as $status => $count) {
-        if ($count > 0) {
+        if ( TRUE || $count > 0) {
           $distribution[] = [
             'label' => ucfirst($status),
             'value' => $count,
@@ -504,7 +504,6 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
           ];
         }
       }
-
     }
     catch (Exception $e) {
       error_log('Status distribution error: ' . $e->getMessage());
@@ -516,7 +515,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get performance trend data.
    */
-  protected function getPerformanceTrend() {
+  public static function getPerformanceTrend() {
     $trends = [];
 
     try {
@@ -561,7 +560,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get error trend data.
    */
-  protected function getErrorTrend() {
+  public static function getErrorTrend() {
     $errors = [];
 
     try {
@@ -576,11 +575,10 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
           COUNT(*) as error_count
         FROM email_queue
         WHERE status = 'failed'
-        AND created_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        -- AND created_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
         GROUP BY DATE_FORMAT(created_date, '%Y-%m-%d %H:00:00')
         ORDER BY hour
       ";
-
       $stmt = $pdo->query($sql);
       $errors = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -595,7 +593,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get priority distribution.
    */
-  protected function getPriorityDistribution() {
+  public static function getPriorityDistribution() {
     $distribution = [];
 
     try {
@@ -697,7 +695,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
    * Get performance trends.
    */
   protected function getPerformanceTrends() {
-    return $this->getPerformanceTrend();
+    return self::getPerformanceTrend();
   }
 
   /**
@@ -810,7 +808,6 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     }
     catch (Exception $e) {
-      error_log('Queue health calculation error: ' . $e->getMessage());
       return [
         'score' => 0,
         'grade' => 'error',

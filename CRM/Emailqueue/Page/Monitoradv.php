@@ -7,15 +7,49 @@ use CRM_Emailqueue_ExtensionUtil as E;
  */
 class CRM_Emailqueue_Page_Monitoradv extends CRM_Core_Page {
 
-  public function run() {
+  public function getEmailById($id) {
+    $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
+    try {
+      $stmt = $pdo->prepare("
+                SELECT *
+                FROM email_queue
+                WHERE id = :id
+            ");
 
+      $stmt->execute(['id' => $id]);
+      $email = $stmt->fetch();
+
+      if ($email) {
+        // Decode JSON fields
+        $email['headers'] = json_decode($email['headers'] ?? '[]', TRUE);
+        return $email;
+      }
+
+      return NULL;
+    }
+    catch (PDOException $e) {
+      error_log("Database error in getEmailById: " . $e->getMessage());
+      throw new Exception("Failed to retrieve email from database");
+    }
+  }
+  public function preProcess() {
+    // Set page title
+    $this->setTitle(E::ts('Email Queue Monitoring - Advanced'));
+
+    // Add CSS and JS resources
+    CRM_Core_Resources::singleton()
+      ->addStyleFile(E::LONG_NAME, 'css/report_adv.css')
+      ->addScriptFile(E::LONG_NAME, 'js/monitor_adv.js');
+  }
+
+  public function run() {
     // Check if email queue is enabled
     $isEnabled = Civi::settings()->get('emailqueue_enabled');
 
     if (!$isEnabled) {
       CRM_Core_Session::setStatus(E::ts('Email Queue System is not enabled. Please enable it in the settings.'), E::ts('System Disabled'), 'warning');
     }
-
+    // Add custom dashboard JavaScript
     try {
       // Get search parameters
       $searchParams = $this->getSearchParams();
@@ -291,7 +325,7 @@ class CRM_Emailqueue_Page_Monitoradv extends CRM_Core_Page {
     }
     catch (Exception $e) {
       CRM_Core_Session::setStatus(E::ts('Export failed: %1', [1 => $e->getMessage()]), E::ts('Export Error'), 'error');
-      CRM_Utils_System::redirect(CRM_Utils_System::url('civicrm/admin/emailqueue/monitoradv'));
+      CRM_Utils_System::redirect(CRM_Utils_System::url('civicrm/emailqueue/monitoradv'));
     }
   }
 

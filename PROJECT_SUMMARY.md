@@ -134,7 +134,7 @@ docker-compose up -d
 
 # Access services
 # CiviCRM: http://localhost:8080
-# Queue Monitor: http://localhost:8080/civicrm/admin/emailqueue/monitor
+# Queue Monitor: http://localhost:8080/civicrm/emailqueue/monitor
 # Database: localhost:3307 (CiviCRM), localhost:3308 (Queue)
 # MailHog: http://localhost:8025
 ```

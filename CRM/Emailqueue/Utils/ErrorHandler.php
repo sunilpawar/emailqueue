@@ -284,7 +284,7 @@ class CRM_Emailqueue_Utils_ErrorHandler {
     }
 
     $body .= "\nPlease check the Email Queue system immediately.\n";
-    $body .= "Access the monitor at: " . CRM_Utils_System::url('civicrm/admin/emailqueue/monitor', NULL, TRUE);
+    $body .= "Access the monitor at: " . CRM_Utils_System::url('civicrm/emailqueue/monitor', NULL, TRUE);
 
     return $body;
   }
@@ -305,7 +305,6 @@ class CRM_Emailqueue_Utils_ErrorHandler {
         AND created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         GROUP BY action
       ";
-
       $stmt = $pdo->query($sql);
       $stats = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 

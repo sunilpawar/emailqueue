@@ -13,6 +13,7 @@ class CRM_Emailqueue_Page_Dashboard extends CRM_Core_Page {
       CRM_Core_Error::statusBounce(ts('You do not have permission to access this page.'));
     }
 
+    // Add Chart.js library
     CRM_Core_Resources::singleton()->addScriptUrl('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js');
 
     // Add custom dashboard JavaScript
@@ -20,7 +21,8 @@ class CRM_Emailqueue_Page_Dashboard extends CRM_Core_Page {
 
     try {
       // Get comprehensive metrics
-      $this->assign('dashboardData', $this->getDashboardData());
+      $dashboardData = $this->getDashboardData();
+      $this->assign('dashboardData', $dashboardData);
 
       // Get chart data
       $chartData = $this->getChartData();
@@ -29,6 +31,8 @@ class CRM_Emailqueue_Page_Dashboard extends CRM_Core_Page {
       // Convert chart data to JSON for JavaScript
       $chartDataJson = json_encode($chartData, JSON_NUMERIC_CHECK);
       $this->assign('chartDataJson', $chartDataJson);
+
+      // Get alerts and recommendations
       $this->assign('alerts', $this->getSystemAlerts());
       $this->assign('recommendations', $this->getActionableRecommendations());
 
@@ -38,10 +42,29 @@ class CRM_Emailqueue_Page_Dashboard extends CRM_Core_Page {
         'refreshUrl' => CRM_Utils_System::url('civicrm/admin/emailqueue/dashboard', 'reset=1'),
         'apiEndpoint' => CRM_Utils_System::url('civicrm/ajax/rest')
       ]);
+
     }
     catch (Exception $e) {
-      CRM_Core_Session::setStatus(E::ts('Error loading dashboard: %1', [1 => $e->getMessage()]), E::ts('Dashboard Error'), 'error');
-      CRM_Emailqueue_Utils_ErrorHandler::handleException($e);
+      CRM_Core_Session::setStatus(
+        E::ts('Error loading dashboard: %1', [1 => $e->getMessage()]),
+        E::ts('Dashboard Error'),
+        'error'
+      );
+
+      // Log the error
+      if (class_exists('CRM_Emailqueue_Utils_ErrorHandler')) {
+        CRM_Emailqueue_Utils_ErrorHandler::handleException($e);
+      }
+      else {
+        error_log('EmailQueue Dashboard Error: ' . $e->getMessage());
+      }
+
+      // Set default empty values
+      $this->assign('dashboardData', $this->getDefaultDashboardData());
+      $this->assign('charts', []);
+      $this->assign('chartDataJson', '{}');
+      $this->assign('alerts', []);
+      $this->assign('recommendations', []);
     }
 
     parent::run();
@@ -348,6 +371,7 @@ class CRM_Emailqueue_Page_Dashboard extends CRM_Core_Page {
 
       $score = max(0, min(100, $score));
 
+      // Determine grade
       if ($score >= 90) {
         $grade = 'excellent';
       }

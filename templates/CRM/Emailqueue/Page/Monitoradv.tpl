@@ -55,7 +55,7 @@
       <span class="search-arrow">▼</span>
     </div>
 
-    <form id="search-form" class="search-form" method="get" action="{crmURL p='civicrm/admin/emailqueue/monitoradv'}">
+    <form id="search-form" class="search-form" method="get" action="{crmURL p='civicrm/emailqueue/monitoradv'}">
       <div class="form-group">
         <label class="form-label">{ts}To Email{/ts}</label>
         <input type="text" name="to_email" class="form-control" value="{if !empty($searchParams.to_email)}{$searchParams.to_email}{/if}" placeholder="{ts}Recipient email{/ts}">
@@ -132,7 +132,7 @@
 
       <div class="search-actions">
         <button type="submit" class="button button-primary">{ts}Search{/ts}</button>
-        <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv'}" class="button button-secondary">{ts}Clear Filters{/ts}</a>
+        <a href="{crmURL p='civicrm/emailqueue/monitoradv'}" class="button button-secondary">{ts}Clear Filters{/ts}</a>
         <button type="button" id="export-filtered-btn" class="button button-info">{ts}Export Filtered{/ts}</button>
       </div>
     </form>
@@ -254,13 +254,13 @@
           </div>
           <div class="pagination-nav">
             {if $pagination.current_page > 1}
-              <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv' q="page=`$pagination.current_page-1`"}" class="page-btn">{ts}Previous{/ts}</a>
+              <a href="{crmURL p='civicrm/emailqueue/monitoradv' q="page=`$pagination.current_page-1`"}" class="page-btn">{ts}Previous{/ts}</a>
             {/if}
 
             {* Page numbers logic here *}
             {for $i=1 to $pagination.total_pages}
               {if $i <= 3 or $i > $pagination.total_pages-3 or ($i >= $pagination.current_page-2 and $i <= $pagination.current_page+2)}
-                <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv' q="page=$i"}"
+                <a href="{crmURL p='civicrm/emailqueue/monitoradv' q="page=$i"}"
                    class="page-btn {if $i == $pagination.current_page}active{/if}">{$i}</a>
               {elseif $i == 4 or $i == $pagination.total_pages-3}
                 <span class="page-btn">...</span>
@@ -268,7 +268,7 @@
             {/for}
 
             {if $pagination.current_page < $pagination.total_pages}
-              <a href="{crmURL p='civicrm/admin/emailqueue/monitoradv' q="page=`$pagination.current_page+1`"}" class="page-btn">{ts}Next{/ts}</a>
+              <a href="{crmURL p='civicrm/emailqueue/monitoradv' q="page=`$pagination.current_page+1`"}" class="page-btn">{ts}Next{/ts}</a>
             {/if}
           </div>
         </div>
@@ -302,7 +302,7 @@
       </div>
 
       <div class="preview-content" id="html-tab">
-        <div id="email-html-content">
+        <div id="email-html-content" style="max-height: 500px; overflow-y: auto;">
           <div class="loading-spinner">{ts}Loading HTML content...{/ts}</div>
         </div>
       </div>
@@ -325,6 +325,500 @@
 {literal}
   <style>
     /* Enhanced styles for search and preview functionality */
+    .email-preview-container {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 20px;
+      margin: 15px 0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .email-preview-header {
+      border-bottom: 2px solid #f5f5f5;
+      padding-bottom: 15px;
+      margin-bottom: 20px;
+    }
+
+    .email-preview-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+      margin: 0 0 10px 0;
+    }
+
+    .email-preview-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      color: #666;
+      font-size: 14px;
+    }
+
+    /* Detail Value Styles */
+    .detail-value {
+      display: inline-block;
+      padding: 4px 8px;
+      background-color: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: #495057;
+      word-break: break-all;
+    }
+
+    .detail-value.email {
+      color: #0066cc;
+      background-color: #e7f3ff;
+      border-color: #b3d9ff;
+    }
+
+    .detail-value.status {
+      font-weight: bold;
+      text-transform: uppercase;
+      font-size: 11px;
+      padding: 3px 6px;
+    }
+
+    .detail-value.status.pending {
+      background-color: #fff3cd;
+      color: #856404;
+      border-color: #ffeaa7;
+    }
+
+    .detail-value.status.sent {
+      background-color: #d4edda;
+      color: #155724;
+      border-color: #c3e6cb;
+    }
+
+    .detail-value.status.failed {
+      background-color: #f8d7da;
+      color: #721c24;
+      border-color: #f5c6cb;
+    }
+
+    .detail-value.status.cancelled {
+      background-color: #e2e3e5;
+      color: #383d41;
+      border-color: #d6d8db;
+    }
+
+    .detail-value.date {
+      color: #28a745;
+      font-family: inherit;
+    }
+
+    .detail-value.number {
+      text-align: right;
+      font-weight: 600;
+      color: #007bff;
+    }
+
+    /* Email Details Grid */
+    .email-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .detail-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .detail-item:last-child {
+      border-bottom: none;
+    }
+
+    .detail-label {
+      font-weight: 600;
+      color: #333;
+      min-width: 100px;
+      flex-shrink: 0;
+      font-size: 14px;
+    }
+
+    .detail-content {
+      flex: 1;
+      color: #555;
+    }
+
+    /* Email Content Preview */
+    .email-content-preview {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 20px;
+    }
+
+    .email-content-header {
+      background: #f8f9fa;
+      padding: 10px 15px;
+      border-bottom: 1px solid #ddd;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .email-content-body {
+      padding: 15px;
+      max-height: 400px;
+      overflow-y: auto;
+      background: #fff;
+    }
+
+    .email-content-iframe {
+      width: 100%;
+      min-height: 300px;
+      border: none;
+      background: #fff;
+    }
+
+    /* HTML/Text Toggle */
+    .content-toggle {
+      display: flex;
+      background: #f8f9fa;
+      border-radius: 4px;
+      padding: 2px;
+      margin-bottom: 15px;
+    }
+
+    .content-toggle button {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: #666;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.2s;
+    }
+
+    .content-toggle button.active {
+      background: #007bff;
+      color: white;
+    }
+
+    .content-toggle button:hover:not(.active) {
+      background: #e9ecef;
+    }
+
+    /* Email Attachments */
+    .email-attachments {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+
+    .attachment-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid #e9ecef;
+    }
+
+    .attachment-item:last-child {
+      border-bottom: none;
+    }
+
+    .attachment-icon {
+      width: 20px;
+      height: 20px;
+      color: #666;
+    }
+
+    .attachment-name {
+      flex: 1;
+      color: #333;
+      text-decoration: none;
+    }
+
+    .attachment-name:hover {
+      color: #007bff;
+      text-decoration: underline;
+    }
+
+    .attachment-size {
+      color: #666;
+      font-size: 12px;
+    }
+
+    /* Email Recipients */
+    .email-recipients {
+      margin: 15px 0;
+    }
+
+    .recipient-group {
+      margin-bottom: 10px;
+    }
+
+    .recipient-label {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 5px;
+      display: block;
+    }
+
+    .recipient-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .recipient-email {
+      display: inline-block;
+      padding: 2px 6px;
+      background: #e7f3ff;
+      color: #0066cc;
+      border-radius: 3px;
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    .recipient-email:hover {
+      background: #cce7ff;
+    }
+
+    /* Action Buttons */
+    .email-preview-actions {
+      display: flex;
+      gap: 10px;
+      padding-top: 15px;
+      border-top: 1px solid #e9ecef;
+      margin-top: 20px;
+    }
+
+    .preview-action-btn {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      background: #fff;
+      color: #333;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .preview-action-btn:hover {
+      background: #f8f9fa;
+      border-color: #adb5bd;
+    }
+
+    .preview-action-btn.primary {
+      background: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+
+    .preview-action-btn.primary:hover {
+      background: #0056b3;
+      border-color: #0056b3;
+    }
+
+    .preview-action-btn.danger {
+      background: #dc3545;
+      color: white;
+      border-color: #dc3545;
+    }
+
+    .preview-action-btn.danger:hover {
+      background: #c82333;
+      border-color: #c82333;
+    }
+
+    /* Email Status Indicators */
+    .email-status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .email-status-indicator.pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .email-status-indicator.sent {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .email-status-indicator.failed {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .email-status-indicator.cancelled {
+      background: #e2e3e5;
+      color: #383d41;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Error Messages */
+    .email-error-details {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      border-radius: 4px;
+      padding: 12px;
+      margin-top: 15px;
+      color: #721c24;
+    }
+
+    .error-title {
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+
+    .error-message {
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    /* Email Statistics */
+    .email-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin: 15px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-value {
+      display: block;
+      font-size: 24px;
+      font-weight: 700;
+      color: #007bff;
+      margin-bottom: 5px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* Loading States */
+    .email-preview-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .loading-spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+      .email-details {
+        grid-template-columns: 1fr;
+      }
+
+      .email-preview-meta {
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .email-preview-actions {
+        flex-direction: column;
+      }
+
+      .preview-action-btn {
+        width: 100%;
+      }
+
+      .detail-item {
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .detail-label {
+        min-width: auto;
+      }
+    }
+
+    /* Print Styles */
+    @media print {
+      .email-preview-actions,
+      .content-toggle {
+        display: none;
+      }
+
+      .email-preview-container {
+        box-shadow: none;
+        border: 1px solid #ccc;
+      }
+
+      .email-content-body {
+        max-height: none;
+        overflow: visible;
+      }
+    }
+
+    /* Dark Mode Support */
+    @media (prefers-color-scheme: dark) {
+      .email-preview-container {
+        background: #2d3748;
+        border-color: #4a5568;
+        color: #e2e8f0;
+      }
+
+      .detail-value {
+        background-color: #4a5568;
+        border-color: #718096;
+        color: #e2e8f0;
+      }
+
+      .email-content-preview {
+        border-color: #4a5568;
+      }
+
+      .email-content-header {
+        background: #4a5568;
+        border-color: #718096;
+        color: #e2e8f0;
+      }
+    }
+
     .search-panel {
       background: #f8f9fa;
       border: 1px solid #e9ecef;
@@ -642,40 +1136,54 @@
         event.target.classList.add('active');
         $('#' + tabName + '-tab').addClass('active');
       };
+      function escapeHtml(str) {
+        return str
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+      function capitalizeFirstLetter(str) {
+        return str[0].toUpperCase() + str.slice(1);
+      }
 
       // Populate email details
       function populateEmailDetails(email) {
-        var html = '<div class="email-details">';
-        html += '<div class="detail-label">To:</div><div class="detail-value">' + email.to_email + '</div>';
-        html += '<div class="detail-label">From:</div><div class="detail-value">' + (email.from_email || '-') + '</div>';
-        html += '<div class="detail-label">Subject:</div><div class="detail-value">' + (email.subject || '-') + '</div>';
-        html += '<div class="detail-label">Status:</div><div class="detail-value"><span class="badge badge-' + getStatusClass(email.status) + '">' + email.status + '</span></div>';
-        html += '<div class="detail-label">Priority:</div><div class="detail-value">' + email.priority + '</div>';
-        html += '<div class="detail-label">Created:</div><div class="detail-value">' + email.created_date + '</div>';
-        html += '<div class="detail-label">Sent:</div><div class="detail-value">' + (email.sent_date || '-') + '</div>';
-        html += '<div class="detail-label">Retry Count:</div><div class="detail-value">' + email.retry_count + ' / ' + email.max_retries + '</div>';
+        var html = '<div class="email-preview-container"><div class="email-details">';
+        html += '<div class="detail-item"><div class="detail-label">To:</div><div class="detail-value">' + email.to_email + '</div></div>';
+        html += '<div class="detail-item"><div class="detail-label">From:</div><div class="detail-value">' + (escapeHtml(email.from_email) || '-') + '</div></div>';
+        html += '<div class="detail-item"><div class="detail-label">Subject:</div><div class="detail-value">' + (email.subject || '-') + '</div></div>';
+        html += '<div class="detail-item"><div class="detail-label">Status:</div><div class="detail-value"><span class="badge badge-' + getStatusClass(email.status) + '" style="">' + capitalizeFirstLetter(email.status) + '</span></div></div>';
+        html += '<div class="detail-item"><div class="detail-label">Priority:</div><div class="detail-value">' + email.priority + '</div></div>';
+        html += '<div class="detail-item"><div class="detail-label">Created:</div><div class="detail-value">' + email.created_date + '</div></div>';
+        html += '<div class="detail-item"><div class="detail-label">Sent:</div><div class="detail-value">' + (email.sent_date || '-') + '</div></div>';
+        html += '<div class="detail-item"><div class="detail-label">Retry Count:</div><div class="detail-value">' + email.retry_count + ' / ' + email.max_retries + '</div></div>';
 
         if (email.cc) {
-          html += '<div class="detail-label">CC:</div><div class="detail-value">' + email.cc + '</div>';
+          html += '<div class="detail-item"><div class="detail-label">CC:</div><div class="detail-value">' + email.cc + '</div></div>';
         }
         if (email.bcc) {
-          html += '<div class="detail-label">BCC:</div><div class="detail-value">' + email.bcc + '</div>';
+          html += '<div class="detail-item"><div class="detail-label">BCC:</div><div class="detail-value">' + email.bcc + '</div></div>';
         }
         if (email.reply_to) {
-          html += '<div class="detail-label">Reply-To:</div><div class="detail-value">' + email.reply_to + '</div>';
+          html += '<div class="detail-item"><div class="detail-label">Reply-To:</div><div class="detail-value">' + escapeHtml(email.reply_to) + '</div></div>';
         }
         if (email.error_message) {
-          html += '<div class="detail-label">Error:</div><div class="detail-value" style="color: #dc3545;">' + email.error_message + '</div>';
+          html += '<div class="detail-item"><div class="detail-label">Error:</div><div class="detail-value" style="color: #dc3545;">' + email.error_message + '</div></div>';
         }
 
-        html += '</div>';
+        html += '</div></div>';
         $('#email-details-content').html(html);
       }
 
       // Populate email content
       function populateEmailContent(email) {
         if (email.body_html) {
-          $('#email-html-content').html('<div class="email-body">' + email.body_html + '</div>');
+          $('#email-html-content').html('<iframe style="text-align:center;width: 100%;height: 100%; " id="myframe"></iframe');
+          var myFrame = $("#myframe").contents().find('body');
+          myFrame.html('<div class="email-body">' + email.body_html + '</div>');
+          // <div class="email-body">' + email.body_html + '</div>
         } else {
           $('#email-html-content').html('<div class="email-body"><em>No HTML content</em></div>');
         }
@@ -694,10 +1202,10 @@
         if (email.logs && email.logs.length > 0) {
           email.logs.forEach(function(log) {
             var logClass = getLogClass(log.action);
-            html += '<div class="log-entry ' + logClass + '">';
+            html += '<div class="detail-item"><div class="log-entry ' + logClass + '">';
             html += '<div class="log-header">' + log.action.toUpperCase() + ' - ' + log.created_date + '</div>';
             html += '<div class="log-message">' + log.message + '</div>';
-            html += '</div>';
+            html += '</div></div>';
           });
         } else {
           html += '<div class="log-entry info"><div class="log-message">No logs available</div></div>';

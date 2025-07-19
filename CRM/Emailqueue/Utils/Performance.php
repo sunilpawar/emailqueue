@@ -62,7 +62,7 @@ class CRM_Emailqueue_Utils_Performance {
   /**
    * Monitor database performance.
    */
-  public static function monitorDatabasePerformance() {
+  public static function monitorDatabasePerformance($timeframe = '24 HOUR') {
     try {
       $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
 
@@ -191,7 +191,7 @@ class CRM_Emailqueue_Utils_Performance {
   /**
    * Get queue processing performance metrics.
    */
-  public static function getProcessingMetrics() {
+  public static function getProcessingMetrics($timeframe = '24 HOUR') {
     try {
       $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
 
@@ -205,9 +205,9 @@ class CRM_Emailqueue_Utils_Performance {
           MIN(sent_date) as first_sent,
           MAX(sent_date) as last_sent
         FROM email_queue
-        WHERE status = 'sent' AND sent_date IS NOT NULL
+        WHERE created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
+        AND status = 'sent' AND sent_date IS NOT NULL
       ");
-
       $metrics = $stmt->fetch(PDO::FETCH_ASSOC);
 
       if ($metrics && $metrics['total_sent'] > 0) {
@@ -231,7 +231,8 @@ class CRM_Emailqueue_Utils_Performance {
           COUNT(CASE WHEN created_date >= DATE_SUB(NOW(), INTERVAL 1 DAY) THEN 1 END) as failed_last_day,
           AVG(retry_count) as avg_retry_count
         FROM email_queue
-        WHERE status = 'failed'
+        WHERE created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
+        AND status = 'failed'
       ");
 
       $failureMetrics = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -422,7 +423,7 @@ class CRM_Emailqueue_Utils_Performance {
   /**
    * Get system health check.
    */
-  public static function getSystemHealthCheck() {
+  public static function getSystemHealthCheck($timeframe = '24 HOUR') {
     $health = [
       'overall_status' => 'healthy',
       'checks' => [],
@@ -484,7 +485,7 @@ class CRM_Emailqueue_Utils_Performance {
 
       // Check queue backlog
       if (CRM_Emailqueue_Config::isEnabled()) {
-        $stats = CRM_Emailqueue_BAO_Queue::getQueueStats();
+        $stats = CRM_Emailqueue_BAO_Queue::getQueueStats($timeframe);
         if ($stats['pending'] > 5000) {
           $health['checks'][] = ['name' => 'Queue Backlog', 'status' => 'warning', 'message' => "Large queue backlog: {$stats['pending']} emails"];
           $health['warnings'][] = 'Large queue backlog';

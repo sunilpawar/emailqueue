@@ -9,14 +9,14 @@
     <is_active>1</is_active>
   </item>
   <item>
-    <path>civicrm/admin/emailqueue/monitor</path>
+    <path>civicrm/emailqueue/monitor</path>
     <page_callback>CRM_Emailqueue_Page_Monitor</page_callback>
     <title>Email Queue Monitor</title>
     <desc>Monitor Email Queue Status</desc>
     <access_arguments>administer CiviCRM</access_arguments>
   </item>
   <item>
-    <path>civicrm/admin/emailqueue/monitoradv</path>
+    <path>civicrm/emailqueue/monitoradv</path>
     <page_callback>CRM_Emailqueue_Page_Monitoradv</page_callback>
     <title>Email Queue Monitor Advanced</title>
     <desc>Monitor Email Queue Status</desc>

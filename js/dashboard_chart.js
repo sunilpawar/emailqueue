@@ -541,7 +541,8 @@ function refreshCharts() {
 
   // Check if CRM API is available
   if (typeof CRM !== 'undefined' && CRM.api3) {
-    CRM.api3('EmailqueueAdmin', 'getmetrics')
+    range = CRM.$('select#timeRange option:selected').prop('value');
+    CRM.api3('EmailqueueAdmin', 'getmetrics', { time_range: range })
       .done(function(result) {
         hideLoadingState();
         if (result.values && result.values.charts) {
@@ -578,7 +579,9 @@ function refreshChartsWithTimeRange(range) {
           chartData = result.values.charts;
           window.chartData = chartData;
           initializeAllCharts();
-          showNotification('Charts updated for ' + range + ' period', 'success');
+          // get selected option lablel wit id 'timeRange' using jquery.
+          label = CRM.$('select#timeRange option:selected').prop('label');
+          showNotification('Charts updated for ' + label + ' period', 'success');
         }
       })
       .fail(function() {

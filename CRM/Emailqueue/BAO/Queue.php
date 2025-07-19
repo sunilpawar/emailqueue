@@ -311,7 +311,7 @@ class CRM_Emailqueue_BAO_Queue {
   /**
    * Get queue statistics.
    */
-  public static function getQueueStats() {
+  public static function getQueueStats($timeframe = '24 HOUR') {
     try {
       $pdo = self::getQueueConnection();
 
@@ -320,9 +320,9 @@ class CRM_Emailqueue_BAO_Queue {
           status,
           COUNT(*) as count
         FROM email_queue
+        WHERE created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         GROUP BY status
       ";
-
       $stmt = $pdo->query($sql);
       $stats = $stmt->fetchAll();
 
@@ -513,7 +513,14 @@ class CRM_Emailqueue_BAO_Queue {
       // Parse headers
       $headers = json_decode($email['headers'], true) ?: [];
       $email['parsed_headers'] = $headers;
-
+      $parser = new CRM_Emailqueue_Utils_EmailParser();
+      $priorityLevels = CRM_Emailqueue_Config::getPriorityLevels();
+      $email['priority'] = $priorityLevels[$email['priority']] ?? 'Normal222';
+      $resultParsed = $parser->parse($email['body_html']);
+      $email['body_text'] = $resultParsed['text_parts'][0]['content'] ?? '';
+      $email['body_html'] = $resultParsed['html_parts'][0]['content'] ?? '';
+      //$email['attachments'] = $resultParsed['attachments'][0]['content'] ??'';
+      //CRM_Core_Error::debug_var('Email Queue Preview $resultParsed: ',$resultParsed);
       // Get email logs
       $logSql = "
         SELECT action, message, created_date

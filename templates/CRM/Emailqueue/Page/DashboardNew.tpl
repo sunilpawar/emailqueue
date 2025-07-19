@@ -11,10 +11,12 @@
         <span class="timestamp">
           {ts}Last updated:{/ts} {$dashboardData.timestamp|crmDate}
         </span>
+        {* Auto-refresh indicator
         <div class="auto-refresh">
           <span class="refresh-indicator active"></span>
-          {ts}Auto-refresh: 30s{/ts}
+          {ts}Auto-refresh: 60s{/ts}
         </div>
+        *}
       </div>
     </div>
 
@@ -22,7 +24,7 @@
       <button class="btn btn-primary" id="refresh-dashboard">
         <i class="fas fa-sync"></i> {ts}Refresh{/ts}
       </button>
-      <a href="{crmURL p='civicrm/admin/emailqueue/monitor'}" class="btn btn-secondary">
+      <a href="{crmURL p='civicrm/emailqueue/monitor'}" class="btn btn-secondary">
         <i class="fas fa-list"></i> {ts}Queue Monitor{/ts}
       </a>
       <a href="{crmURL p='civicrm/admin/emailqueue/settings'}" class="btn btn-outline-secondary">
@@ -186,6 +188,11 @@
           <h3 class="chart-title">{ts}Email Volume (24 Hours){/ts}</h3>
           <div class="chart-controls">
             <select class="chart-timeframe" id="timeRange">
+              {*
+              <option value="1h">{ts}Last 1 Hours{/ts}</option>
+              <option value="2h">{ts}Last 2 Hours{/ts}</option>
+              <option value="6h">{ts}Last 6 Hours{/ts}</option>
+              *}
               <option value="24h">{ts}Last 24 Hours{/ts}</option>
               <option value="7d">{ts}Last 7 Days{/ts}</option>
               <option value="30d">{ts}Last 30 Days{/ts}</option>
@@ -923,7 +930,7 @@
       initializeDashboard();
 
       // Auto-refresh every 30 seconds
-      setInterval(refreshDashboard, 30000);
+      // setInterval(refreshDashboard, 60000);
 
       // Manual refresh button
       $('#refresh-dashboard').click(function() {

@@ -92,6 +92,22 @@ function emailqueue_civicrm_alterMailer(&$mailer, $driver, $params) {
  */
 function emailqueue_civicrm_navigationMenu(&$menu) {
   _emailqueue_civix_insert_navigation_menu($menu, 'Mailings', [
+    'label' => E::ts('Email Queue Dashboard'),
+    'name' => 'emailqueue_dashboard_new',
+    'url' => 'civicrm/emailqueue/dashboard-new',
+    'permission' => 'administer CiviCRM',
+    'operator' => 'OR',
+    'separator' => 0,
+  ]);
+  _emailqueue_civix_insert_navigation_menu($menu, 'Mailings', [
+    'label' => E::ts('Email Queue Monitor'),
+    'name' => 'emailqueue_monitor_new',
+    'url' => 'civicrm/emailqueue/monitoradv',
+    'permission' => 'administer CiviCRM',
+    'operator' => 'OR',
+    'separator' => 0,
+  ]);
+  _emailqueue_civix_insert_navigation_menu($menu, 'Mailings', [
     'label' => E::ts('Email Queue Settings'),
     'name' => 'emailqueue_settings',
     'url' => 'civicrm/admin/emailqueue/settings',
