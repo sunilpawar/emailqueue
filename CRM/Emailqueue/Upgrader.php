@@ -3,18 +3,16 @@
 use CRM_Emailqueue_ExtensionUtil as E;
 
 /**
- * Collection of upgrade steps.
+ * Collection of upgrade steps with multi-client support.
  */
 class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
+
   /**
    * Installation routine.
    */
   public function install() {
     // Set default settings
     $this->setDefaultSettings();
-
-    // Create database tables (will be done when user configures DB settings)
-    // Note: We don't create tables here because we use a separate database
 
     // Add scheduled job
     $this->addScheduledJob();
@@ -32,9 +30,6 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
 
     // Clean up settings (keep DB connection settings for manual cleanup)
     $this->cleanupSettings();
-
-    // Note: We don't drop database tables automatically for safety
-    // Users should manually drop the separate database if desired
 
     CRM_Core_Error::debug_log_message('Email Queue Extension uninstalled');
   }
@@ -99,6 +94,176 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
       CRM_Core_Error::debug_log_message('Email Queue upgrade 1.0.2 failed: ' . $e->getMessage());
       return FALSE;
     }
+  }
+
+  /**
+   * Upgrade to version 1.1.0 - Add multi-client support.
+   */
+  public function upgrade_1100() {
+    $this->ctx->log->info('Upgrading Email Queue to version 1.1.0 - Adding multi-client support');
+
+    try {
+      // Add client_id columns and indexes
+      $this->addClientIdSupport();
+
+      // Update settings for multi-client features
+      $this->updateSettingsVersion1100();
+
+      // Populate existing records with default client_id
+      $this->populateExistingRecordsWithClientId();
+
+      return TRUE;
+    }
+    catch (Exception $e) {
+      CRM_Core_Error::debug_log_message('Email Queue upgrade 1.1.0 failed: ' . $e->getMessage());
+      return FALSE;
+    }
+  }
+
+  /**
+   * Add client_id support to existing tables.
+   */
+  protected function addClientIdSupport() {
+    if (!CRM_Emailqueue_Config::isEnabled()) {
+      $this->ctx->log->info('Email Queue is disabled, skipping database changes');
+      return;
+    }
+
+    try {
+      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
+
+      // Check if client_id column already exists in email_queue
+      $stmt = $pdo->query("SHOW COLUMNS FROM email_queue LIKE 'client_id'");
+      if ($stmt->rowCount() == 0) {
+        // Add client_id column to email_queue table
+        $alterEmailQueue = "
+          ALTER TABLE email_queue
+          ADD COLUMN client_id VARCHAR(64) NOT NULL DEFAULT 'default' AFTER id,
+          ADD INDEX idx_client_status (client_id, status),
+          ADD INDEX idx_client_scheduled (client_id, scheduled_date),
+          ADD INDEX idx_client_priority (client_id, priority),
+          ADD INDEX idx_client_created (client_id, created_date),
+          ADD INDEX idx_client_status_priority_created (client_id, status, priority, created_date)
+        ";
+
+        $pdo->exec($alterEmailQueue);
+        $this->ctx->log->info('Added client_id column and indexes to email_queue table');
+      }
+
+      // Check if client_id column already exists in email_queue_log
+      $stmt = $pdo->query("SHOW COLUMNS FROM email_queue_log LIKE 'client_id'");
+      if ($stmt->rowCount() == 0) {
+        // Add client_id column to email_queue_log table
+        $alterEmailQueueLog = "
+          ALTER TABLE email_queue_log
+          ADD COLUMN client_id VARCHAR(64) NOT NULL DEFAULT 'default' AFTER id,
+          ADD INDEX idx_client_queue_id (client_id, queue_id),
+          ADD INDEX idx_client_action (client_id, action),
+          ADD INDEX idx_client_created (client_id, created_date)
+        ";
+
+        $pdo->exec($alterEmailQueueLog);
+        $this->ctx->log->info('Added client_id column and indexes to email_queue_log table');
+      }
+
+      // Drop old indexes that don't include client_id (they will be less efficient now)
+      //$this->dropOldIndexes($pdo);
+
+    }
+    catch (PDOException $e) {
+      // Log error but don't fail completely
+      $this->ctx->log->error('Failed to add client_id support: ' . $e->getMessage());
+      throw $e;
+    }
+  }
+
+  /**
+   * Drop old indexes that don't include client_id.
+   */
+  protected function dropOldIndexes($pdo) {
+    $indexesToDrop = [
+      'email_queue' => [
+        'idx_status',
+        'idx_scheduled',
+        'idx_priority',
+        'idx_created',
+        'idx_status_priority_created',
+        'idx_status_scheduled',
+        'idx_from_email_status',
+        'idx_to_email_status'
+      ],
+      'email_queue_log' => [
+        'idx_queue_id',
+        'idx_action',
+        'idx_created'
+      ]
+    ];
+
+    foreach ($indexesToDrop as $table => $indexes) {
+      foreach ($indexes as $indexName) {
+        try {
+          $pdo->exec("DROP INDEX {$indexName} ON {$table}");
+          $this->ctx->log->info("Dropped old index {$indexName} from {$table}");
+        }
+        catch (PDOException $e) {
+          // Index might not exist, ignore error
+          if (strpos($e->getMessage(), "check that column/key exists") === FALSE) {
+            $this->ctx->log->warning("Failed to drop index {$indexName}: " . $e->getMessage());
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Populate existing records with client_id.
+   */
+  protected function populateExistingRecordsWithClientId() {
+    if (!CRM_Emailqueue_Config::isEnabled()) {
+      return;
+    }
+
+    try {
+      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
+      $defaultClientId = CRM_Emailqueue_Config::getCurrentClientId();
+
+      // Update email_queue records
+      $stmt = $pdo->prepare("UPDATE email_queue SET client_id = ? WHERE client_id = 'default' OR client_id = ''");
+      $stmt->execute([$defaultClientId]);
+      $updatedQueue = $stmt->rowCount();
+
+      // Update email_queue_log records
+      $stmt = $pdo->prepare("UPDATE email_queue_log SET client_id = ? WHERE client_id = 'default' OR client_id = ''");
+      $stmt->execute([$defaultClientId]);
+      $updatedLog = $stmt->rowCount();
+
+      $this->ctx->log->info("Updated {$updatedQueue} email queue records and {$updatedLog} log records with client_id: {$defaultClientId}");
+
+    }
+    catch (Exception $e) {
+      $this->ctx->log->error('Failed to populate client_id in existing records: ' . $e->getMessage());
+      throw $e;
+    }
+  }
+
+  /**
+   * Update settings for version 1.1.0.
+   */
+  protected function updateSettingsVersion1100() {
+    // Add new settings for multi-client support
+    $newSettings = [
+      'emailqueue_client_id' => CRM_Emailqueue_Config::generateClientId(),
+      'emailqueue_multi_client_mode' => FALSE,
+      'emailqueue_admin_client_access' => FALSE,
+    ];
+
+    foreach ($newSettings as $key => $value) {
+      if (Civi::settings()->get($key) === NULL) {
+        Civi::settings()->set($key, $value);
+      }
+    }
+
+    $this->ctx->log->info('Updated settings for multi-client support');
   }
 
   /**
@@ -229,13 +394,13 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   protected function addPerformanceIndexes() {
     if (!CRM_Emailqueue_Config::isEnabled()) {
-      return; // Skip if extension is disabled
+      return;
     }
 
     try {
       $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
 
-      // Add composite indexes for better query performance
+      // Add composite indexes for better query performance (without client_id for backward compatibility)
       $indexes = [
         'idx_status_priority_created' => 'CREATE INDEX idx_status_priority_created ON email_queue (status, priority, created_date)',
         'idx_status_scheduled' => 'CREATE INDEX idx_status_scheduled ON email_queue (status, scheduled_date)',
@@ -284,7 +449,7 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   protected function addValidationColumns() {
     if (!CRM_Emailqueue_Config::isEnabled()) {
-      return; // Skip if extension is disabled
+      return;
     }
 
     try {
@@ -421,4 +586,42 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
     CRM_Core_Error::debug_log_message('Email Queue Extension post-install completed');
   }
 
+  /**
+   * Migrate data for multi-client upgrade (utility method).
+   */
+  public function migrateDataForMultiClient($oldClientId = 'default', $newClientId = NULL) {
+    if (!CRM_Emailqueue_Config::isEnabled()) {
+      throw new Exception('Email Queue system is not enabled');
+    }
+
+    if (empty($newClientId)) {
+      $newClientId = CRM_Emailqueue_Config::getCurrentClientId();
+    }
+
+    try {
+      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
+
+      // Update email_queue records
+      $stmt = $pdo->prepare("UPDATE email_queue SET client_id = ? WHERE client_id = ?");
+      $stmt->execute([$newClientId, $oldClientId]);
+      $updatedQueue = $stmt->rowCount();
+
+      // Update email_queue_log records
+      $stmt = $pdo->prepare("UPDATE email_queue_log SET client_id = ? WHERE client_id = ?");
+      $stmt->execute([$newClientId, $oldClientId]);
+      $updatedLog = $stmt->rowCount();
+
+      CRM_Core_Error::debug_log_message("Migrated {$updatedQueue} email queue records and {$updatedLog} log records from client '{$oldClientId}' to '{$newClientId}'");
+
+      return [
+        'email_queue_updated' => $updatedQueue,
+        'email_queue_log_updated' => $updatedLog
+      ];
+
+    }
+    catch (Exception $e) {
+      CRM_Core_Error::debug_log_message('Data migration failed: ' . $e->getMessage());
+      throw $e;
+    }
+  }
 }

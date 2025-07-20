@@ -3,7 +3,7 @@
 use CRM_Emailqueue_ExtensionUtil as E;
 
 /**
- * Advanced monitoring dashboard for Email Queue system.
+ * Advanced monitoring dashboard for Email Queue system with multi-client support.
  */
 class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
@@ -13,6 +13,27 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       CRM_Core_Error::statusBounce(ts('You do not have permission to access this page.'));
     }
 
+    // Get current client context
+    $currentClientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    $hasAdminAccess = CRM_Emailqueue_Config::hasAdminClientAccess();
+    $isMultiClientMode = CRM_Emailqueue_Config::isMultiClientMode();
+
+    // Handle client switching for admin users
+    $selectedClientId = CRM_Utils_Request::retrieve('client_id', 'String');
+    if ($hasAdminAccess && !empty($selectedClientId)) {
+      try {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($selectedClientId);
+        $currentClientId = $selectedClientId;
+      }
+      catch (Exception $e) {
+        CRM_Core_Session::setStatus(
+          E::ts('Failed to switch to client %1: %2', [1 => $selectedClientId, 2 => $e->getMessage()]),
+          E::ts('Client Switch Error'),
+          'error'
+        );
+      }
+    }
+
     // Add Chart.js library
     CRM_Core_Resources::singleton()->addScriptUrl('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js');
 
@@ -20,62 +41,85 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
     CRM_Core_Resources::singleton()->addScriptFile(E::LONG_NAME, 'js/dashboard_chart.js');
 
     try {
-      // Get comprehensive metrics
-      $dashboardData = $this->getDashboardData();
+      // Get comprehensive metrics for current client
+      $dashboardData = $this->getDashboardData($currentClientId);
       $this->assign('dashboardData', $dashboardData);
 
-      // Get chart data
-      $chartData = self::getChartData();
+      // Get chart data for current client
+      $chartData = self::getChartData('24 HOUR', $currentClientId);
       $this->assign('charts', $chartData);
 
       // Convert chart data to JSON for JavaScript
       $chartDataJson = json_encode($chartData, JSON_NUMERIC_CHECK);
       $this->assign('chartDataJson', $chartDataJson);
 
-      // Get alerts and recommendations
-      $this->assign('alerts', $this->getSystemAlerts());
-      $this->assign('recommendations', $this->getActionableRecommendations());
+      // Get alerts and recommendations for current client
+      $this->assign('alerts', $this->getSystemAlerts($currentClientId));
+      $this->assign('recommendations', $this->getActionableRecommendations($currentClientId));
+
+      // Multi-client information
+      $this->assign('currentClientId', $currentClientId);
+      $this->assign('hasAdminAccess', $hasAdminAccess);
+      $this->assign('isMultiClientMode', $isMultiClientMode);
+
+      // Get available clients for admin users
+      if ($hasAdminAccess) {
+        try {
+          $availableClients = CRM_Emailqueue_Config::getClientList();
+          $this->assign('availableClients', $availableClients);
+        }
+        catch (Exception $e) {
+          $this->assign('availableClients', []);
+        }
+      }
 
       // Pass data to JavaScript
       CRM_Core_Resources::singleton()->addVars('emailqueue', [
         'dashboardChartDataJson' => $chartDataJson,
         'refreshUrl' => CRM_Utils_System::url('civicrm/admin/emailqueue/dashboard-new', 'reset=1'),
-        'apiEndpoint' => CRM_Utils_System::url('civicrm/ajax/rest')
+        'apiEndpoint' => CRM_Utils_System::url('civicrm/ajax/rest'),
+        'currentClientId' => $currentClientId,
+        'hasAdminAccess' => $hasAdminAccess,
+        'isMultiClientMode' => $isMultiClientMode
       ]);
 
     }
     catch (Exception $e) {
       CRM_Core_Session::setStatus(
-        E::ts('Error loading dashboard: %1', [1 => $e->getMessage()]),
+        E::ts('Error loading dashboard for client %1: %2', [1 => $currentClientId, 2 => $e->getMessage()]),
         E::ts('Dashboard Error'),
         'error'
       );
 
       // Log the error
       if (class_exists('CRM_Emailqueue_Utils_ErrorHandler')) {
-        CRM_Emailqueue_Utils_ErrorHandler::handleException($e);
+        CRM_Emailqueue_Utils_ErrorHandler::handleException($e, ['client_id' => $currentClientId]);
       }
       else {
-        error_log('EmailQueue Dashboard Error: ' . $e->getMessage());
+        error_log('EmailQueue Dashboard Error for client ' . $currentClientId . ': ' . $e->getMessage());
       }
 
       // Set default empty values
-      $this->assign('dashboardData', $this->getDefaultDashboardData());
+      $this->assign('dashboardData', $this->getDefaultDashboardData($currentClientId));
       $this->assign('charts', []);
       $this->assign('chartDataJson', '{}');
       $this->assign('alerts', []);
       $this->assign('recommendations', []);
+      $this->assign('currentClientId', $currentClientId);
+      $this->assign('hasAdminAccess', $hasAdminAccess);
+      $this->assign('isMultiClientMode', $isMultiClientMode);
     }
 
     parent::run();
   }
 
   /**
-   * Get comprehensive dashboard data.
+   * Get comprehensive dashboard data for specific client.
    */
-  protected function getDashboardData() {
+  protected function getDashboardData($clientId) {
     $data = [
       'timestamp' => date('Y-m-d H:i:s'),
+      'client_id' => $clientId,
       'system_status' => 'unknown',
       'queue_health' => [
         'score' => 0,
@@ -85,37 +129,48 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
     ];
 
     try {
-      // Basic queue statistics
+      // Temporarily switch context if needed
+      $originalClientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      if ($clientId !== $originalClientId) {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($clientId);
+      }
+
+      // Basic queue statistics for this client
       $data['queue_stats'] = CRM_Emailqueue_BAO_Queue::getQueueStats();
 
-      // Processing metrics
-      $data['processing_metrics'] = CRM_Emailqueue_Utils_Performance::getProcessingMetrics();
+      // Processing metrics for this client
+      $data['processing_metrics'] = CRM_Emailqueue_Utils_Performance::getProcessingMetrics('24 HOUR', $clientId);
 
-      // Database performance
-      $data['database_metrics'] = CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance();
+      // Database performance for this client
+      $data['database_metrics'] = CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance('24 HOUR', $clientId);
 
-      // System health
-      $data['system_health'] = CRM_Emailqueue_Utils_Performance::getSystemHealthCheck();
-      $data['system_status'] = $data['system_health']['overall_status'] ?? 'unknow';
+      // System health (includes client-specific checks)
+      $data['system_health'] = CRM_Emailqueue_Utils_Performance::getSystemHealthCheck('24 HOUR');
+      $data['system_status'] = $data['system_health']['overall_status'] ?? 'unknown';
 
-      // Error statistics
+      // Error statistics for this client
       $data['error_stats'] = CRM_Emailqueue_Utils_ErrorHandler::getErrorStats('24 HOUR');
 
-      // Recent activity
-      $data['recent_activity'] = $this->getRecentActivity();
+      // Recent activity for this client
+      $data['recent_activity'] = $this->getRecentActivity($clientId);
 
-      // Performance trends
-      $data['trends'] = $this->getPerformanceTrends();
+      // Performance trends for this client
+      $data['trends'] = $this->getPerformanceTrends($clientId);
 
-      // Capacity metrics
-      $data['capacity'] = $this->getCapacityMetrics();
+      // Capacity metrics for this client
+      $data['capacity'] = $this->getCapacityMetrics($clientId);
 
-      // Queue health score
-      $data['queue_health'] = $this->calculateQueueHealth($data);
+      // Queue health score for this client
+      $data['queue_health'] = $this->calculateQueueHealth($data, $clientId);
+
+      // Restore original context
+      if ($clientId !== $originalClientId) {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($originalClientId);
+      }
 
     }
     catch (Exception $e) {
-      error_log('Dashboard data error: ' . $e->getMessage());
+      error_log('Dashboard data error for client ' . $clientId . ': ' . $e->getMessage());
       $data['error'] = $e->getMessage();
     }
 
@@ -125,9 +180,10 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   /**
    * Get default dashboard data structure for error cases.
    */
-  protected function getDefaultDashboardData() {
+  protected function getDefaultDashboardData($clientId) {
     return [
       'timestamp' => date('Y-m-d H:i:s'),
+      'client_id' => $clientId,
       'system_status' => 'error',
       'queue_health' => [
         'score' => 0,
@@ -149,9 +205,9 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   }
 
   /**
-   * Get queue statistics.
+   * Get queue statistics for specific client.
    */
-  protected function getQueueStats() {
+  protected function getQueueStats($clientId) {
     $stats = [
       'pending' => 0,
       'processing' => 0,
@@ -169,11 +225,12 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       $sql = "
         SELECT status, COUNT(*) as count
         FROM email_queue
-        WHERE created_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        WHERE client_id = ? AND created_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)
         GROUP BY status
       ";
 
-      $stmt = $pdo->query($sql);
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([$clientId]);
       while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         $status = strtolower($row['status']);
         if (isset($stats[$status])) {
@@ -183,258 +240,57 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     }
     catch (Exception $e) {
-      error_log('Queue stats error: ' . $e->getMessage());
+      error_log('Queue stats error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $stats;
   }
 
   /**
-   * Get processing metrics.
+   * Get processing metrics for specific client.
    */
-  protected function getProcessingMetrics() {
-    $metrics = [
-      'emails_per_hour' => 0,
-      'avg_processing_time' => 0,
-      'avg_processing_time_formatted' => '0s',
-      'success_rate' => 0
-    ];
-
-    try {
-      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
-      if (!$pdo) {
-        return $metrics;
-      }
-
-      // Get hourly rate
-      $sql = "
-        SELECT COUNT(*) as count
-        FROM email_queue
-        WHERE status = 'sent'
-        AND sent_date >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-      ";
-
-      $stmt = $pdo->query($sql);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-      $metrics['emails_per_hour'] = (int)($row['count'] ?? 0);
-
-      // Get average processing time
-      $sql = "
-        SELECT AVG(TIMESTAMPDIFF(SECOND, created_date, sent_date)) as avg_time
-        FROM email_queue
-        WHERE status = 'sent'
-        AND sent_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        AND created_date IS NOT NULL
-        AND sent_date IS NOT NULL
-      ";
-
-      $stmt = $pdo->query($sql);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-      $avgTime = (float)($row['avg_time'] ?? 0);
-      $metrics['avg_processing_time'] = $avgTime;
-      $metrics['avg_processing_time_formatted'] = $this->formatProcessingTime($avgTime);
-
-      // Get success rate
-      $sql = "
-        SELECT
-          COUNT(*) as total,
-          SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent
-        FROM email_queue
-        WHERE created_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        AND status IN ('sent', 'failed')
-      ";
-
-      $stmt = $pdo->query($sql);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-      $total = (int)($row['total'] ?? 0);
-      $sent = (int)($row['sent'] ?? 0);
-      $metrics['success_rate'] = $total > 0 ? round(($sent / $total) * 100, 2) : 0;
-
-    }
-    catch (Exception $e) {
-      error_log('Processing metrics error: ' . $e->getMessage());
-    }
-
-    return $metrics;
+  protected function getProcessingMetrics($clientId) {
+    return CRM_Emailqueue_Utils_Performance::getProcessingMetrics('24 HOUR', $clientId);
   }
 
   /**
-   * Format processing time for display.
+   * Get chart data for visualizations with client support.
    */
-  protected function formatProcessingTime($seconds) {
-    if ($seconds < 60) {
-      return round($seconds, 1) . 's';
-    }
-    elseif ($seconds < 3600) {
-      return round($seconds / 60, 1) . 'm';
-    }
-    else {
-      return round($seconds / 3600, 1) . 'h';
-    }
-  }
-
-  /**
-   * Get database metrics.
-   */
-  protected function getDatabaseMetrics() {
-    $metrics = [];
-
-    try {
-      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
-      if (!$pdo) {
-        return $metrics;
-      }
-
-      $sql = "
-        SELECT
-          COUNT(*) as total_rows,
-          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_rows
-        FROM email_queue
-      ";
-
-      $stmt = $pdo->query($sql);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-      $metrics['email_queue'] = [
-        'rows' => (int)($row['total_rows'] ?? 0),
-        'pending_rows' => (int)($row['pending_rows'] ?? 0)
-      ];
-
-    }
-    catch (Exception $e) {
-      error_log('Database metrics error: ' . $e->getMessage());
-    }
-
-    return $metrics;
-  }
-
-  /**
-   * Get system health check.
-   */
-  protected function getSystemHealthCheck() {
-    $health = [
-      'overall_status' => 'healthy',
-      'checks' => [],
-      'errors' => []
-    ];
-
-    try {
-      // Check database connection
-      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
-      if ($pdo) {
-        $health['checks'][] = [
-          'name' => 'Database Connection',
-          'status' => 'healthy',
-          'message' => 'Connected'
-        ];
-      }
-      else {
-        $health['checks'][] = [
-          'name' => 'Database Connection',
-          'status' => 'error',
-          'message' => 'Connection failed'
-        ];
-        $health['errors'][] = 'Database connection failed';
-        $health['overall_status'] = 'error 1';
-      }
-
-      // Check table existence
-      if ($pdo) {
-        $sql = "SHOW TABLES LIKE 'email_queue'";
-        $stmt = $pdo->query($sql);
-        if ($stmt->rowCount() > 0) {
-          $health['checks'][] = [
-            'name' => 'Email Queue Table',
-            'status' => 'healthy',
-            'message' => 'Table exists'
-          ];
-        }
-        else {
-          $health['checks'][] = [
-            'name' => 'Email Queue Table',
-            'status' => 'error',
-            'message' => 'Table not found'
-          ];
-          $health['errors'][] = 'Email queue table not found';
-          $health['overall_status'] = 'error 2';
-        }
-      }
-
-    }
-    catch (Exception $e) {
-      $health['overall_status'] = 'error 3';
-      $health['errors'][] = $e->getMessage();
-      error_log('System health check error: ' . $e->getMessage());
-    }
-
-    return $health;
-  }
-
-  /**
-   * Get error statistics.
-   */
-  protected function getErrorStats() {
-    $stats = [];
-
-    try {
-      $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
-      if (!$pdo) {
-        return $stats;
-      }
-
-      $sql = "
-        SELECT COUNT(*) as error_count
-        FROM email_queue
-        WHERE status = 'failed'
-        AND created_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-      ";
-
-      $stmt = $pdo->query($sql);
-      $row = $stmt->fetch(PDO::FETCH_ASSOC);
-      $stats['failed_24h'] = (int)($row['error_count'] ?? 0);
-
-    }
-    catch (Exception $e) {
-      error_log('Error stats error: ' . $e->getMessage());
-    }
-
-    return $stats;
-  }
-
-  /**
-   * Get chart data for visualizations.
-   */
-  public static function getChartData($timeframe = '24 HOUR') {
+  public static function getChartData($timeframe = '24 HOUR', $clientId = NULL) {
     $charts = [];
 
     try {
-      // Email volume over time (last 24 hours)
-      $charts['volume_24h'] = self::getVolumeChart($timeframe);
+      if ($clientId === NULL) {
+        $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      }
 
-      // Email status distribution
-      $charts['status_distribution'] = self::getStatusDistribution($timeframe);
+      // Email volume over time for specific client
+      $charts['volume_24h'] = self::getVolumeChart($timeframe, $clientId);
 
-      // Processing performance
-      $charts['performance_trend'] = self::getPerformanceTrend($timeframe);
+      // Email status distribution for specific client
+      $charts['status_distribution'] = self::getStatusDistribution($timeframe, $clientId);
 
-      // Error rate trend
-      $charts['error_trend'] = self::getErrorTrend($timeframe);
+      // Processing performance for specific client
+      $charts['performance_trend'] = self::getPerformanceTrend($timeframe, $clientId);
 
-      // Priority distribution
-      $charts['priority_distribution'] = self::getPriorityDistribution($timeframe);
+      // Error rate trend for specific client
+      $charts['error_trend'] = self::getErrorTrend($timeframe, $clientId);
+
+      // Priority distribution for specific client
+      $charts['priority_distribution'] = self::getPriorityDistribution($timeframe, $clientId);
 
     }
     catch (Exception $e) {
-      CRM_Emailqueue_Utils_ErrorHandler::handleException($e);
+      error_log('Chart data error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $charts;
   }
 
   /**
-   * Get volume chart data.
+   * Get volume chart data for specific client.
    */
-  public static function getVolumeChart($timeframe) {
+  public static function getVolumeChart($timeframe, $clientId = NULL) {
     $chartData = [];
 
     try {
@@ -443,18 +299,23 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         return $chartData;
       }
 
+      if ($clientId === NULL) {
+        $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      }
+
       $sql = "
         SELECT
           DATE_FORMAT(created_date, '%Y-%m-%d %H:00:00') as time_period,
           status,
           COUNT(*) as count
         FROM email_queue
-        WHERE created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
+        WHERE client_id = ? AND created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         GROUP BY DATE_FORMAT(created_date, '%Y-%m-%d %H:00:00'), status
         ORDER BY time_period
       ";
 
-      $stmt = $pdo->query($sql);
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([$clientId]);
       $rawData = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
       // Transform data for charting
@@ -471,21 +332,30 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     }
     catch (Exception $e) {
-      error_log('Volume chart error: ' . $e->getMessage());
+      error_log('Volume chart error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $chartData;
   }
 
   /**
-   * Get status distribution for pie chart.
+   * Get status distribution for pie chart for specific client.
    */
-  public static function getStatusDistribution($timeframe) {
+  public static function getStatusDistribution($timeframe, $clientId = NULL) {
     $distribution = [];
 
     try {
+      if ($clientId === NULL) {
+        $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      }
+
+      // Temporarily switch context if needed
+      $originalClientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      if ($clientId !== $originalClientId) {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($clientId);
+      }
+
       $stats = CRM_Emailqueue_BAO_Queue::getQueueStats($timeframe);
-      // $this->getQueueStats();
 
       $statusColors = [
         'pending' => '#ffc107',
@@ -496,7 +366,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       ];
 
       foreach ($stats as $status => $count) {
-        if ( TRUE || $count > 0) {
+        if (TRUE || $count > 0) {
           $distribution[] = [
             'label' => ucfirst($status),
             'value' => $count,
@@ -504,18 +374,23 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
           ];
         }
       }
+
+      // Restore original context
+      if ($clientId !== $originalClientId) {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($originalClientId);
+      }
     }
     catch (Exception $e) {
-      error_log('Status distribution error: ' . $e->getMessage());
+      error_log('Status distribution error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $distribution;
   }
 
   /**
-   * Get performance trend data.
+   * Get performance trend data for specific client.
    */
-  public static function getPerformanceTrend() {
+  public static function getPerformanceTrend($timeframe = '24 HOUR', $clientId = NULL) {
     $trends = [];
 
     try {
@@ -524,21 +399,26 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         return $trends;
       }
 
+      if ($clientId === NULL) {
+        $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      }
+
       $sql = "
         SELECT
           DATE_FORMAT(sent_date, '%Y-%m-%d %H:00:00') as hour,
           COUNT(*) as sent_count,
           AVG(TIMESTAMPDIFF(SECOND, created_date, sent_date)) as avg_processing_time
         FROM email_queue
-        WHERE status = 'sent'
-        AND sent_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE client_id = ? AND status = 'sent'
+        AND sent_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         AND created_date IS NOT NULL
         AND sent_date IS NOT NULL
         GROUP BY DATE_FORMAT(sent_date, '%Y-%m-%d %H:00:00')
         ORDER BY hour
       ";
 
-      $stmt = $pdo->query($sql);
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([$clientId]);
       $rawData = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
       foreach ($rawData as $row) {
@@ -551,16 +431,16 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     }
     catch (Exception $e) {
-      error_log('Performance trend error: ' . $e->getMessage());
+      error_log('Performance trend error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $trends;
   }
 
   /**
-   * Get error trend data.
+   * Get error trend data for specific client.
    */
-  public static function getErrorTrend() {
+  public static function getErrorTrend($timeframe = '24 HOUR', $clientId = NULL) {
     $errors = [];
 
     try {
@@ -569,31 +449,37 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         return $errors;
       }
 
+      if ($clientId === NULL) {
+        $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      }
+
       $sql = "
         SELECT
           DATE_FORMAT(created_date, '%Y-%m-%d %H:00:00') as hour,
           COUNT(*) as error_count
         FROM email_queue
-        WHERE status = 'failed'
-        -- AND created_date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        WHERE client_id = ? AND status = 'failed'
+        AND created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         GROUP BY DATE_FORMAT(created_date, '%Y-%m-%d %H:00:00')
         ORDER BY hour
       ";
-      $stmt = $pdo->query($sql);
+
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([$clientId]);
       $errors = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     }
     catch (Exception $e) {
-      error_log('Error trend error: ' . $e->getMessage());
+      error_log('Error trend error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $errors;
   }
 
   /**
-   * Get priority distribution.
+   * Get priority distribution for specific client.
    */
-  public static function getPriorityDistribution() {
+  public static function getPriorityDistribution($timeframe = '7 DAY', $clientId = NULL) {
     $distribution = [];
 
     try {
@@ -602,17 +488,22 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         return $distribution;
       }
 
+      if ($clientId === NULL) {
+        $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      }
+
       $sql = "
         SELECT
           COALESCE(priority, 0) as priority,
           COUNT(*) as count
         FROM email_queue
-        WHERE created_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        WHERE client_id = ? AND created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         GROUP BY COALESCE(priority, 0)
         ORDER BY priority
       ";
 
-      $stmt = $pdo->query($sql);
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([$clientId]);
       $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
       $priorities = [
@@ -633,16 +524,16 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     }
     catch (Exception $e) {
-      error_log('Priority distribution error: ' . $e->getMessage());
+      error_log('Priority distribution error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $distribution;
   }
 
   /**
-   * Get recent activity for timeline.
+   * Get recent activity for timeline for specific client.
    */
-  protected function getRecentActivity() {
+  protected function getRecentActivity($clientId) {
     $activities = [];
 
     try {
@@ -660,7 +551,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
           subject,
           status
         FROM email_queue
-        WHERE status = 'sent'
+        WHERE client_id = ? AND status = 'sent'
         AND sent_date >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
 
         UNION ALL
@@ -673,45 +564,47 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
           subject,
           status
         FROM email_queue
-        WHERE status = 'failed'
+        WHERE client_id = ? AND status = 'failed'
         AND created_date >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
 
         ORDER BY created_date DESC
         LIMIT 20
       ";
 
-      $stmt = $pdo->query($sql);
+      $stmt = $pdo->prepare($sql);
+      $stmt->execute([$clientId, $clientId]);
       $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     }
     catch (Exception $e) {
-      error_log('Recent activity error: ' . $e->getMessage());
+      error_log('Recent activity error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $activities;
   }
 
   /**
-   * Get performance trends.
+   * Get performance trends for specific client.
    */
-  protected function getPerformanceTrends() {
-    return self::getPerformanceTrend();
+  protected function getPerformanceTrends($clientId) {
+    return self::getPerformanceTrend('24 HOUR', $clientId);
   }
 
   /**
-   * Get capacity metrics.
+   * Get capacity metrics for specific client.
    */
-  protected function getCapacityMetrics() {
+  protected function getCapacityMetrics($clientId) {
     $capacity = [
       'theoretical_hourly_capacity' => 0,
       'actual_hourly_rate' => 0,
       'capacity_utilization' => 0,
       'batch_size' => 50,
-      'cron_frequency' => 5
+      'cron_frequency' => 5,
+      'client_id' => $clientId
     ];
 
     try {
-      $processingMetrics = $this->getProcessingMetrics();
+      $processingMetrics = $this->getProcessingMetrics($clientId);
       $batchSize = 50; // Default batch size
       $cronFrequency = 5; // Default frequency in minutes
 
@@ -728,21 +621,22 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         'actual_hourly_rate' => $actualHourlyRate,
         'capacity_utilization' => round($capacityUtilization, 2),
         'batch_size' => $batchSize,
-        'cron_frequency' => $cronFrequency
+        'cron_frequency' => $cronFrequency,
+        'client_id' => $clientId
       ];
 
     }
     catch (Exception $e) {
-      error_log('Capacity metrics error: ' . $e->getMessage());
+      error_log('Capacity metrics error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $capacity;
   }
 
   /**
-   * Calculate overall queue health score.
+   * Calculate overall queue health score for specific client.
    */
-  protected function calculateQueueHealth($data) {
+  protected function calculateQueueHealth($data, $clientId) {
     $score = 100;
     $factors = [];
 
@@ -803,7 +697,8 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       return [
         'score' => round($score),
         'grade' => $grade,
-        'factors' => $factors
+        'factors' => $factors,
+        'client_id' => $clientId
       ];
 
     }
@@ -811,27 +706,34 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       return [
         'score' => 0,
         'grade' => 'error',
-        'factors' => ['Calculation error: ' . $e->getMessage()]
+        'factors' => ['Calculation error: ' . $e->getMessage()],
+        'client_id' => $clientId
       ];
     }
   }
 
   /**
-   * Get system alerts and warnings.
+   * Get system alerts and warnings for specific client.
    */
-  protected function getSystemAlerts() {
+  protected function getSystemAlerts($clientId) {
     $alerts = [];
 
     try {
-      $stats = $this->getQueueStats();
-      $health = $this->getSystemHealthCheck();
+      // Temporarily switch context if needed
+      $originalClientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+      if ($clientId !== $originalClientId) {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($clientId);
+      }
+
+      $stats = $this->getQueueStats($clientId);
+      $health = CRM_Emailqueue_Utils_Performance::getSystemHealthCheck();
 
       // High queue backlog
       if ($stats['pending'] > 1000) {
         $alerts[] = [
           'type' => 'warning',
           'title' => 'High Queue Backlog',
-          'message' => "There are {$stats['pending']} emails pending in the queue",
+          'message' => "Client '{$clientId}' has {$stats['pending']} emails pending in the queue",
           'action' => 'Consider increasing processing frequency or batch size'
         ];
       }
@@ -842,7 +744,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         $alerts[] = [
           'type' => 'error',
           'title' => 'High Failure Rate',
-          'message' => "Failed emails ({$stats['failed']}) exceed 10% of processed emails",
+          'message' => "Client '{$clientId}' failed emails ({$stats['failed']}) exceed 10% of processed emails",
           'action' => 'Review SMTP configuration and email content'
         ];
       }
@@ -852,9 +754,14 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
         $alerts[] = [
           'type' => 'error',
           'title' => 'System Health Issues',
-          'message' => count($health['errors']) . ' critical issues detected',
+          'message' => "Client '{$clientId}': " . count($health['errors']) . ' critical issues detected',
           'action' => 'Review system health check details'
         ];
+      }
+
+      // Restore original context
+      if ($clientId !== $originalClientId) {
+        CRM_Emailqueue_BAO_Queue::switchClientContext($originalClientId);
       }
 
     }
@@ -862,7 +769,7 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       $alerts[] = [
         'type' => 'error',
         'title' => 'Dashboard Error',
-        'message' => 'Failed to load system alerts: ' . $e->getMessage(),
+        'message' => "Failed to load system alerts for client '{$clientId}': " . $e->getMessage(),
         'action' => 'Check system logs for details'
       ];
     }
@@ -871,23 +778,24 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
   }
 
   /**
-   * Get actionable recommendations.
+   * Get actionable recommendations for specific client.
    */
-  protected function getActionableRecommendations() {
+  protected function getActionableRecommendations($clientId) {
     $recommendations = [];
 
     try {
-      $stats = $this->getQueueStats();
-      $metrics = $this->getProcessingMetrics();
+      $stats = $this->getQueueStats($clientId);
+      $metrics = $this->getProcessingMetrics($clientId);
 
       // High backlog recommendation
       if ($stats['pending'] > 500) {
         $recommendations[] = [
           'issue' => 'High Email Queue Backlog',
-          'description' => "There are {$stats['pending']} emails waiting to be processed.",
+          'description' => "Client '{$clientId}' has {$stats['pending']} emails waiting to be processed.",
           'suggestion' => 'Increase batch size or processing frequency to clear the backlog faster.',
           'priority' => 'high',
           'category' => 'performance',
+          'client_id' => $clientId,
           'actions' => [
             [
               'label' => 'Process Queue Now',
@@ -903,10 +811,11 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
       if ($metrics['success_rate'] < 95 && $metrics['success_rate'] > 0) {
         $recommendations[] = [
           'issue' => 'Low Email Delivery Success Rate',
-          'description' => "Current success rate is {$metrics['success_rate']}%.",
+          'description' => "Client '{$clientId}' current success rate is {$metrics['success_rate']}%.",
           'suggestion' => 'Review SMTP settings and email content for delivery issues.',
           'priority' => 'medium',
           'category' => 'delivery',
+          'client_id' => $clientId,
           'actions' => [
             [
               'label' => 'Check Settings',
@@ -919,33 +828,9 @@ class CRM_Emailqueue_Page_DashboardNew extends CRM_Core_Page {
 
     }
     catch (Exception $e) {
-      error_log('Recommendations error: ' . $e->getMessage());
+      error_log('Recommendations error for client ' . $clientId . ': ' . $e->getMessage());
     }
 
     return $recommendations;
-  }
-
-  /**
-   * Get database connection for queue operations.
-   */
-  protected function getQueueConnection() {
-    try {
-      // Use CiviCRM's database connection
-      $dsn = DB::parseDSN(CIVICRM_DSN);
-      $pdo = new PDO(
-        "mysql:host={$dsn['hostspec']};dbname={$dsn['database']};charset=utf8",
-        $dsn['username'],
-        $dsn['password'],
-        [
-          PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-          PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-        ]
-      );
-      return $pdo;
-    }
-    catch (Exception $e) {
-      error_log('Database connection error: ' . $e->getMessage());
-      return NULL;
-    }
   }
 }

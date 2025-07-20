@@ -1,11 +1,31 @@
 <?php
 
 /**
- * Business Access Object for Email Queue operations.
+ * Business Access Object for Email Queue operations with multi-client support.
  */
 class CRM_Emailqueue_BAO_Queue {
 
   private static $mailerCache = [];
+
+  /**
+   * Get current client ID from configuration.
+   */
+  public static function getCurrentClientId() {
+    // Try to get client_id from various sources
+    $clientId = CRM_Emailqueue_Config::getSetting('client_id');
+
+    if (empty($clientId)) {
+      // Fallback to domain ID or organization ID
+      $clientId = CRM_Core_Config::domainID();
+    }
+
+    if (empty($clientId)) {
+      // Last resort - use a default client ID
+      $clientId = 'default';
+    }
+
+    return $clientId;
+  }
 
   /**
    * Get database connection for email queue.
@@ -20,7 +40,6 @@ class CRM_Emailqueue_BAO_Queue {
       $password = Civi::settings()->get('emailqueue_db_pass');
 
       try {
-       // $availableDrivers = PDO::getAvailableDrivers();
         $option = [PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES 'utf8'"];
         $extra = ';charset=utf8';
         $connection = new PDO('mysql' . ":dbname=" . $dbname . ";host={$host}{$extra}", $username, $password, $option);
@@ -35,7 +54,7 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Create email queue database tables.
+   * Create email queue database tables with client_id support.
    */
   public static function createTables() {
     try {
@@ -44,6 +63,7 @@ class CRM_Emailqueue_BAO_Queue {
       $sql = "
         CREATE TABLE IF NOT EXISTS email_queue (
           id INT AUTO_INCREMENT PRIMARY KEY,
+          client_id VARCHAR(64) NOT NULL DEFAULT 'default',
           to_email VARCHAR(255) NOT NULL,
           subject TEXT,
           from_email VARCHAR(255),
@@ -61,10 +81,16 @@ class CRM_Emailqueue_BAO_Queue {
           retry_count INT DEFAULT 0,
           max_retries INT DEFAULT 3,
           error_message TEXT,
-          INDEX idx_status (status),
-          INDEX idx_scheduled (scheduled_date),
-          INDEX idx_priority (priority),
-          INDEX idx_created (created_date)
+          validation_score TINYINT UNSIGNED NULL,
+          validation_warnings TEXT NULL,
+          tracking_code VARCHAR(64) NULL,
+          INDEX idx_client_status (client_id, status),
+          INDEX idx_client_scheduled (client_id, scheduled_date),
+          INDEX idx_client_priority (client_id, priority),
+          INDEX idx_client_created (client_id, created_date),
+          INDEX idx_client_status_priority_created (client_id, status, priority, created_date),
+          INDEX idx_tracking_code (tracking_code),
+          INDEX idx_validation_score (validation_score)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       ";
 
@@ -74,14 +100,15 @@ class CRM_Emailqueue_BAO_Queue {
       $logSql = "
         CREATE TABLE IF NOT EXISTS email_queue_log (
           id INT AUTO_INCREMENT PRIMARY KEY,
+          client_id VARCHAR(64) NOT NULL DEFAULT 'default',
           queue_id INT NOT NULL,
           action VARCHAR(50) NOT NULL,
           message TEXT,
           created_date DATETIME NOT NULL,
           FOREIGN KEY (queue_id) REFERENCES email_queue(id) ON DELETE CASCADE,
-          INDEX idx_queue_id (queue_id),
-          INDEX idx_action (action),
-          INDEX idx_created (created_date)
+          INDEX idx_client_queue_id (client_id, queue_id),
+          INDEX idx_client_action (client_id, action),
+          INDEX idx_client_created (client_id, created_date)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       ";
 
@@ -95,19 +122,20 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Add email to queue.
+   * Add email to queue with client_id.
    */
   public static function addToQueue($emailData) {
     try {
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
       $sql = "
         INSERT INTO email_queue (
-          to_email, subject, from_email, reply_to, cc, bcc,
+          client_id, to_email, subject, from_email, reply_to, cc, bcc,
           body_html, body_text, headers, created_date, status,
           priority, retry_count, max_retries
         ) VALUES (
-          :to_email, :subject, :from_email, :reply_to, :cc, :bcc,
+          :client_id, :to_email, :subject, :from_email, :reply_to, :cc, :bcc,
           :body_html, :body_text, :headers, :created_date, :status,
           :priority, :retry_count, :max_retries
         )
@@ -115,6 +143,7 @@ class CRM_Emailqueue_BAO_Queue {
 
       $stmt = $pdo->prepare($sql);
 
+      $emailData['client_id'] = $clientId;
       $emailData['max_retries'] = Civi::settings()->get('emailqueue_retry_attempts');
 
       $stmt->execute($emailData);
@@ -134,34 +163,36 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Process email queue.
+   * Process email queue for current client.
    */
   public static function processQueue() {
     try {
       $batchSize = Civi::settings()->get('emailqueue_batch_size');
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
-      // Get pending emails
+      // Get pending emails for current client
       $sql = "
         SELECT * FROM email_queue
-        WHERE status = 'pending'
+        WHERE client_id = :client_id
+        AND status = 'pending'
         AND (scheduled_date IS NULL OR scheduled_date <= NOW())
         ORDER BY priority ASC, created_date ASC
         LIMIT :batch_size
       ";
 
       $stmt = $pdo->prepare($sql);
+      $stmt->bindValue(':client_id', $clientId, PDO::PARAM_STR);
       $stmt->bindValue(':batch_size', $batchSize, PDO::PARAM_INT);
       $stmt->execute();
 
       $emails = $stmt->fetchAll();
-      // Mailer class:
 
       foreach ($emails as $email) {
         self::processEmail($email);
       }
 
-      CRM_Core_Error::debug_log_message("Processed " . count($emails) . " emails from queue");
+      CRM_Core_Error::debug_log_message("Processed " . count($emails) . " emails from queue for client: {$clientId}");
 
     }
     catch (Exception $e) {
@@ -265,13 +296,15 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Log action to email queue log.
+   * Log action to email queue log with client_id.
    */
   protected static function logAction($queueId, $action, $message) {
     try {
       $pdo = self::getQueueConnection();
-      $sql = "INSERT INTO email_queue_log (queue_id, action, message, created_date) VALUES (?, ?, ?, NOW())";
-      $pdo->prepare($sql)->execute([$queueId, $action, $message]);
+      $clientId = self::getCurrentClientId();
+
+      $sql = "INSERT INTO email_queue_log (client_id, queue_id, action, message, created_date) VALUES (?, ?, ?, ?, NOW())";
+      $pdo->prepare($sql)->execute([$clientId, $queueId, $action, $message]);
     }
     catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Log Error: ' . $e->getMessage());
@@ -309,21 +342,26 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Get queue statistics.
+   * Get queue statistics for current client.
    */
   public static function getQueueStats($timeframe = '24 HOUR') {
     try {
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
       $sql = "
         SELECT
           status,
           COUNT(*) as count
         FROM email_queue
-        WHERE created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
+        WHERE client_id = :client_id
+        AND created_date >= DATE_SUB(NOW(), INTERVAL {$timeframe})
         GROUP BY status
       ";
-      $stmt = $pdo->query($sql);
+
+      $stmt = $pdo->prepare($sql);
+      $stmt->bindValue(':client_id', $clientId, PDO::PARAM_STR);
+      $stmt->execute();
       $stats = $stmt->fetchAll();
 
       $result = [
@@ -348,14 +386,15 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Search emails in queue with filters.
+   * Search emails in queue with filters for current client.
    */
   public static function searchEmails($params = []) {
     try {
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
-      $where = [];
-      $bindings = [];
+      $where = ["client_id = ?"];
+      $bindings = [$clientId];
 
       // Build WHERE clause based on filters
       if (!empty($params['to_email'])) {
@@ -378,7 +417,8 @@ class CRM_Emailqueue_BAO_Queue {
           $placeholders = str_repeat('?,', count($params['status']) - 1) . '?';
           $where[] = "status IN ($placeholders)";
           $bindings = array_merge($bindings, $params['status']);
-        } else {
+        }
+        else {
           $where[] = "status = ?";
           $bindings[] = $params['status'];
         }
@@ -386,7 +426,7 @@ class CRM_Emailqueue_BAO_Queue {
 
       if (!empty($params['priority'])) {
         $where[] = "priority = ?";
-        $bindings[] = (int) $params['priority'];
+        $bindings[] = (int)$params['priority'];
       }
 
       // Date range filters
@@ -414,7 +454,8 @@ class CRM_Emailqueue_BAO_Queue {
       if (!empty($params['has_error'])) {
         if ($params['has_error'] === 'yes') {
           $where[] = "error_message IS NOT NULL AND error_message != ''";
-        } else {
+        }
+        else {
           $where[] = "(error_message IS NULL OR error_message = '')";
         }
       }
@@ -477,21 +518,24 @@ class CRM_Emailqueue_BAO_Queue {
         'limit' => $limit,
         'offset' => $offset,
         'current_page' => floor($offset / $limit) + 1,
-        'total_pages' => ceil($totalCount / $limit)
+        'total_pages' => ceil($totalCount / $limit),
+        'client_id' => $clientId
       ];
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Search Error: ' . $e->getMessage());
       throw $e;
     }
   }
 
   /**
-   * Get email details for preview.
+   * Get email details for preview (client-specific).
    */
   public static function getEmailPreview($emailId) {
     try {
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
       $sql = "
         SELECT
@@ -499,74 +543,79 @@ class CRM_Emailqueue_BAO_Queue {
           body_html, body_text, headers, created_date, sent_date,
           status, priority, retry_count, error_message, max_retries
         FROM email_queue
-        WHERE id = ?
+        WHERE id = ? AND client_id = ?
       ";
 
       $stmt = $pdo->prepare($sql);
-      $stmt->execute([$emailId]);
+      $stmt->execute([$emailId, $clientId]);
       $email = $stmt->fetch();
 
       if (!$email) {
-        throw new Exception('Email not found');
+        throw new Exception('Email not found for this client');
       }
 
       // Parse headers
-      $headers = json_decode($email['headers'], true) ?: [];
+      $headers = json_decode($email['headers'], TRUE) ?: [];
       $email['parsed_headers'] = $headers;
       $parser = new CRM_Emailqueue_Utils_EmailParser();
       $priorityLevels = CRM_Emailqueue_Config::getPriorityLevels();
-      $email['priority'] = $priorityLevels[$email['priority']] ?? 'Normal222';
+      $email['priority'] = $priorityLevels[$email['priority']] ?? 'Normal';
       $resultParsed = $parser->parse($email['body_html']);
       $email['body_text'] = $resultParsed['text_parts'][0]['content'] ?? '';
       $email['body_html'] = $resultParsed['html_parts'][0]['content'] ?? '';
       //$email['attachments'] = $resultParsed['attachments'][0]['content'] ??'';
       //CRM_Core_Error::debug_var('Email Queue Preview $resultParsed: ',$resultParsed);
-      // Get email logs
+      // Get email logs for this client
       $logSql = "
         SELECT action, message, created_date
         FROM email_queue_log
-        WHERE queue_id = ?
+        WHERE queue_id = ? AND client_id = ?
         ORDER BY created_date DESC
       ";
 
       $logStmt = $pdo->prepare($logSql);
-      $logStmt->execute([$emailId]);
+      $logStmt->execute([$emailId, $clientId]);
       $email['logs'] = $logStmt->fetchAll();
 
       return $email;
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Preview Error: ' . $e->getMessage());
       throw $e;
     }
   }
 
   /**
-   * Get filter options for search form.
+   * Get filter options for search form (client-specific).
    */
   public static function getFilterOptions() {
     try {
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
       // Get unique statuses
-      $statusSql = "SELECT DISTINCT status FROM email_queue ORDER BY status";
-      $statusStmt = $pdo->query($statusSql);
+      $statusSql = "SELECT DISTINCT status FROM email_queue WHERE client_id = ? ORDER BY status";
+      $statusStmt = $pdo->prepare($statusSql);
+      $statusStmt->execute([$clientId]);
       $statuses = $statusStmt->fetchAll(PDO::FETCH_COLUMN);
 
       // Get unique priorities
-      $prioritySql = "SELECT DISTINCT priority FROM email_queue ORDER BY priority";
-      $priorityStmt = $pdo->query($prioritySql);
+      $prioritySql = "SELECT DISTINCT priority FROM email_queue WHERE client_id = ? ORDER BY priority";
+      $priorityStmt = $pdo->prepare($prioritySql);
+      $priorityStmt->execute([$clientId]);
       $priorities = $priorityStmt->fetchAll(PDO::FETCH_COLUMN);
 
       // Get unique from emails (top 20)
       $fromSql = "
         SELECT DISTINCT from_email
         FROM email_queue
-        WHERE from_email IS NOT NULL AND from_email != ''
+        WHERE client_id = ? AND from_email IS NOT NULL AND from_email != ''
         ORDER BY from_email
         LIMIT 20
       ";
-      $fromStmt = $pdo->query($fromSql);
+      $fromStmt = $pdo->prepare($fromSql);
+      $fromStmt->execute([$clientId]);
       $fromEmails = $fromStmt->fetchAll(PDO::FETCH_COLUMN);
 
       return [
@@ -575,7 +624,8 @@ class CRM_Emailqueue_BAO_Queue {
         'from_emails' => $fromEmails
       ];
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Filter Options Error: ' . $e->getMessage());
       return [
         'statuses' => ['pending', 'processing', 'sent', 'failed', 'cancelled'],
@@ -586,7 +636,7 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Export emails to CSV based on search criteria.
+   * Export emails to CSV based on search criteria (client-specific).
    */
   public static function exportEmails($params = []) {
     try {
@@ -620,18 +670,20 @@ class CRM_Emailqueue_BAO_Queue {
 
       return $csvData;
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Export Error: ' . $e->getMessage());
       throw $e;
     }
   }
 
   /**
-   * Bulk actions on emails.
+   * Bulk actions on emails (client-specific).
    */
   public static function bulkAction($action, $emailIds) {
     try {
       $pdo = self::getQueueConnection();
+      $clientId = self::getCurrentClientId();
 
       if (empty($emailIds) || !is_array($emailIds)) {
         throw new Exception('No email IDs provided');
@@ -639,11 +691,15 @@ class CRM_Emailqueue_BAO_Queue {
 
       $placeholders = str_repeat('?,', count($emailIds) - 1) . '?';
       $affectedRows = 0;
+
+      // Add client_id to the binding parameters
+      $bindings = array_merge($emailIds, [$clientId]);
+
       switch ($action) {
         case 'cancel':
-          $sql = "UPDATE email_queue SET status = 'cancelled' WHERE id IN ($placeholders) AND status IN ('pending', 'failed')";
+          $sql = "UPDATE email_queue SET status = 'cancelled' WHERE id IN ($placeholders) AND client_id = ? AND status IN ('pending', 'failed')";
           $stmt = $pdo->prepare($sql);
-          $stmt->execute($emailIds);
+          $stmt->execute($bindings);
           $affectedRows = $stmt->rowCount();
 
           // Log the action
@@ -653,9 +709,9 @@ class CRM_Emailqueue_BAO_Queue {
           break;
 
         case 'retry':
-          $sql = "UPDATE email_queue SET status = 'pending', retry_count = 0, error_message = NULL, scheduled_date = NULL WHERE id IN ($placeholders) AND status = 'failed'";
+          $sql = "UPDATE email_queue SET status = 'pending', retry_count = 0, error_message = NULL, scheduled_date = NULL WHERE id IN ($placeholders) AND client_id = ? AND status = 'failed'";
           $stmt = $pdo->prepare($sql);
-          $stmt->execute($emailIds);
+          $stmt->execute($bindings);
           $affectedRows = $stmt->rowCount();
 
           // Log the action
@@ -665,10 +721,10 @@ class CRM_Emailqueue_BAO_Queue {
           break;
 
         case 'delete':
-          // Only allow deletion of cancelled or failed emails
-          $sql = "DELETE FROM email_queue WHERE id IN ($placeholders) AND status IN ('cancelled', 'failed')";
+          // Only allow deletion of cancelled or failed emails for current client
+          $sql = "DELETE FROM email_queue WHERE id IN ($placeholders) AND client_id = ? AND status IN ('cancelled', 'failed')";
           $stmt = $pdo->prepare($sql);
-          $stmt->execute($emailIds);
+          $stmt->execute($bindings);
           $affectedRows = $stmt->rowCount();
           break;
 
@@ -678,11 +734,59 @@ class CRM_Emailqueue_BAO_Queue {
 
       return $affectedRows;
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Bulk Action Error: ' . $e->getMessage());
       throw $e;
     }
   }
 
+  /**
+   * Get client statistics.
+   */
+  public static function getClientStats() {
+    try {
+      $pdo = self::getQueueConnection();
 
+      $sql = "
+        SELECT
+          client_id,
+          COUNT(*) as total_emails,
+          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
+          COUNT(CASE WHEN status = 'sent' THEN 1 END) as sent,
+          COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed,
+          MAX(created_date) as last_activity
+        FROM email_queue
+        GROUP BY client_id
+        ORDER BY last_activity DESC
+      ";
+
+      $stmt = $pdo->query($sql);
+      return $stmt->fetchAll();
+
+    }
+    catch (Exception $e) {
+      CRM_Core_Error::debug_log_message('Email Queue Client Stats Error: ' . $e->getMessage());
+      return [];
+    }
+  }
+
+  /**
+   * Switch to a different client context (for admin operations).
+   */
+  public static function switchClientContext($clientId) {
+    if (empty($clientId)) {
+      throw new Exception('Client ID cannot be empty');
+    }
+
+    // Store the new client ID in the session or temporary setting
+    Civi::settings()->set('emailqueue_temp_client_id', $clientId);
+  }
+
+  /**
+   * Reset client context to default.
+   */
+  public static function resetClientContext() {
+    Civi::settings()->revert('emailqueue_temp_client_id');
+  }
 }

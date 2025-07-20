@@ -1,14 +1,14 @@
 <?php
 
 /**
- * Configuration class for Email Queue extension.
+ * Configuration class for Email Queue extension with multi-client support.
  */
 class CRM_Emailqueue_Config {
 
   // Extension constants
   const EXTENSION_KEY = 'com.skvare.emailqueue';
   const EXTENSION_NAME = 'Email Queue System';
-  const EXTENSION_VERSION = '1.0.0';
+  const EXTENSION_VERSION = '1.0.0'; // Updated version for multi-client support
 
   // Database table names
   const TABLE_EMAIL_QUEUE = 'email_queue';
@@ -56,6 +56,78 @@ class CRM_Emailqueue_Config {
   const CACHE_TTL_FILTER_OPTIONS = 3600; // 1 hour
 
   /**
+   * Get current client ID with fallback logic.
+   */
+  public static function getCurrentClientId() {
+    // Check for temporary client override (for admin operations)
+    $tempClientId = self::getSetting('temp_client_id');
+    if (!empty($tempClientId)) {
+      return $tempClientId;
+    }
+
+    // Get configured client ID
+    $clientId = self::getSetting('client_id');
+
+    if (empty($clientId)) {
+      // Auto-generate client ID based on domain
+      $clientId = self::generateClientId();
+      // Save it for future use
+      self::setSetting('client_id', $clientId);
+    }
+
+    return $clientId;
+  }
+
+  /**
+   * Generate a client ID based on domain and organization.
+   */
+  protected static function generateClientId() {
+    $domain = CRM_Core_Config::domainID();
+    $org = CRM_Core_Config::singleton()->userFramework;
+
+    // Try to get organization name
+    try {
+      $orgContact = civicrm_api3('Domain', 'getsingle', ['id' => $domain]);
+      $orgName = $orgContact['name'] ?? '';
+
+      if (!empty($orgName)) {
+        // Clean the organization name for use as client ID
+        $clientId = preg_replace('/[^a-zA-Z0-9_-]/', '_', strtolower($orgName));
+        $clientId = trim($clientId, '_');
+      }
+      else {
+        $clientId = 'domain_' . $domain;
+      }
+    }
+    catch (Exception $e) {
+      $clientId = 'domain_' . $domain;
+    }
+
+    // Fallback to default if still empty
+    if (empty($clientId)) {
+      $clientId = 'default';
+    }
+
+    return $clientId;
+  }
+
+  /**
+   * Set client ID for current context.
+   */
+  public static function setClientId($clientId) {
+    if (empty($clientId)) {
+      throw new Exception('Client ID cannot be empty');
+    }
+
+    // Validate client ID format (alphanumeric, underscore, hyphen only)
+    if (!preg_match('/^[a-zA-Z0-9_-]+$/', $clientId)) {
+      throw new Exception('Client ID can only contain letters, numbers, underscores, and hyphens');
+    }
+
+    self::setSetting('client_id', $clientId);
+  }
+
+  /**
    * Get all available email statuses.
    */
   public static function getEmailStatuses() {
@@ -87,6 +159,7 @@ class CRM_Emailqueue_Config {
   public static function getDefaultSettings() {
     return [
       'emailqueue_enabled' => FALSE,
+      'emailqueue_client_id' => self::generateClientId(),
       'emailqueue_db_host' => 'localhost',
       'emailqueue_db_name' => 'emailqueue',
       'emailqueue_db_user' => '',
@@ -99,7 +172,9 @@ class CRM_Emailqueue_Config {
       'emailqueue_cleanup_days' => 90,
       'emailqueue_enable_tracking' => TRUE,
       'emailqueue_enable_validation' => TRUE,
-      'emailqueue_log_level' => 'info'
+      'emailqueue_log_level' => 'info',
+      'emailqueue_multi_client_mode' => FALSE,
+      'emailqueue_admin_client_access' => FALSE,
     ];
   }
 
@@ -134,6 +209,20 @@ class CRM_Emailqueue_Config {
    */
   public static function isEnabled() {
     return (bool)self::getSetting('enabled', FALSE);
+  }
+
+  /**
+   * Check if multi-client mode is enabled.
+   */
+  public static function isMultiClientMode() {
+    return (bool)self::getSetting('multi_client_mode', FALSE);
+  }
+
+  /**
+   * Check if admin has access to all clients.
+   */
+  public static function hasAdminClientAccess() {
+    return (bool)self::getSetting('admin_client_access', FALSE);
   }
 
   /**
@@ -308,7 +397,7 @@ class CRM_Emailqueue_Config {
       'key' => self::EXTENSION_KEY,
       'name' => self::EXTENSION_NAME,
       'version' => self::EXTENSION_VERSION,
-      'description' => 'Alternative email system that queues emails in a separate database for delayed processing',
+      'description' => 'Alternative email system that queues emails in a separate database for delayed processing with multi-client support',
       'author' => 'Your Organization',
       'license' => 'AGPL-3.0'
     ];
@@ -325,6 +414,15 @@ class CRM_Emailqueue_Config {
     if (!self::isEnabled()) {
       $warnings[] = 'Email Queue System is disabled';
       return ['errors' => $errors, 'warnings' => $warnings];
+    }
+
+    // Validate client ID
+    $clientId = self::getCurrentClientId();
+    if (empty($clientId)) {
+      $errors[] = 'Client ID is required';
+    }
+    elseif (!preg_match('/^[a-zA-Z0-9_-]+$/', $clientId)) {
+      $errors[] = 'Client ID contains invalid characters';
     }
 
     // Validate database settings
@@ -353,6 +451,64 @@ class CRM_Emailqueue_Config {
       $warnings[] = 'Retry attempts should be between 0 and 10';
     }
 
+    // Multi-client mode warnings
+    if (self::isMultiClientMode()) {
+      $warnings[] = 'Multi-client mode is enabled - ensure proper client isolation';
+    }
+
     return ['errors' => $errors, 'warnings' => $warnings];
+  }
+
+  /**
+   * Get client configuration info.
+   */
+  public static function getClientInfo() {
+    return [
+      'current_client_id' => self::getCurrentClientId(),
+      'multi_client_mode' => self::isMultiClientMode(),
+      'admin_client_access' => self::hasAdminClientAccess(),
+      'generated_client_id' => self::generateClientId(),
+    ];
+  }
+
+  /**
+   * Initialize client settings for a new client.
+   */
+  public static function initializeClient($clientId, $settings = []) {
+    if (empty($clientId)) {
+      throw new Exception('Client ID is required');
+    }
+
+    // Validate client ID format
+    if (!preg_match('/^[a-zA-Z0-9_-]+$/', $clientId)) {
+      throw new Exception('Client ID can only contain letters, numbers, underscores, and hyphens');
+    }
+
+    // Set client-specific settings
+    $clientSettings = array_merge(self::getDefaultSettings(), $settings);
+    $clientSettings['emailqueue_client_id'] = $clientId;
+
+    foreach ($clientSettings as $key => $value) {
+      self::setSetting($key, $value);
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Get client list (if admin access is enabled).
+   */
+  public static function getClientList() {
+    if (!self::hasAdminClientAccess()) {
+      throw new Exception('Admin client access is not enabled');
+    }
+
+    try {
+      return CRM_Emailqueue_BAO_Queue::getClientStats();
+    }
+    catch (Exception $e) {
+      CRM_Core_Error::debug_log_message('Failed to get client list: ' . $e->getMessage());
+      return [];
+    }
   }
 }

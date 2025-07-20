@@ -1,7 +1,7 @@
 <?php
 
 /**
- * EmailqueueAdmin.Healthcheck API
+ * EmailqueueAdmin.Healthcheck API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -11,11 +11,26 @@
  */
 function civicrm_api3_emailqueue_admin_healthcheck($params) {
   try {
-    $health = CRM_Emailqueue_Utils_Performance::getSystemHealthCheck();
+    $clientId = $params['client_id'] ?? null;
+    $health = CRM_Emailqueue_Utils_Performance::getSystemHealthCheck('24 HOUR');
+    $health['client_id'] = $clientId ?: CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+
     return civicrm_api3_create_success($health);
   } catch (Exception $e) {
     throw new API_Exception('Health check failed: ' . $e->getMessage());
   }
+}
+
+/**
+ * EmailqueueAdmin.Healthcheck API specification
+ */
+function _civicrm_api3_emailqueue_admin_healthcheck_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Check health for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
 }
 
 function _civicrm_api3_emailqueue_admin_getmetrics_spec(&$spec) {
@@ -26,10 +41,16 @@ function _civicrm_api3_emailqueue_admin_getmetrics_spec(&$spec) {
     'api.default' => '24 HOUR',
     'description' => 'Time Range for metrics, e.g., "24 HOUR", "7 DAY", "30 DAY".',
   ];
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Get metrics for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
 }
 
 /**
- * EmailqueueAdmin.Getmetrics API
+ * EmailqueueAdmin.Getmetrics API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -39,8 +60,9 @@ function _civicrm_api3_emailqueue_admin_getmetrics_spec(&$spec) {
  */
 function civicrm_api3_emailqueue_admin_getmetrics($params) {
   if (empty($params['time_range'])) {
-    $params['time_range'] = '24 HOUR'; // Default to last 24 hours
+    $params['time_range'] = '24 HOUR';
   }
+
   $mapping = [
     '1h' => '1 HOUR',
     '2h' => '2 HOUR',
@@ -54,15 +76,25 @@ function civicrm_api3_emailqueue_admin_getmetrics($params) {
     '1y' => '1 YEAR',
   ];
   $params['time_range'] = $mapping[$params['time_range']] ?? $params['time_range'];
+
   try {
+    $clientId = $params['client_id'] ?? null;
+
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
     $metrics = [
+      'client_id' => $clientId ?: CRM_Emailqueue_BAO_Queue::getCurrentClientId(),
       'queue_stats' => CRM_Emailqueue_BAO_Queue::getQueueStats($params['time_range']),
-      'processing_metrics' => CRM_Emailqueue_Utils_Performance::getProcessingMetrics($params['time_range']),
-      'database_metrics' => CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance($params['time_range']),
+      'processing_metrics' => CRM_Emailqueue_Utils_Performance::getProcessingMetrics($params['time_range'], $clientId),
+      'database_metrics' => CRM_Emailqueue_Utils_Performance::monitorDatabasePerformance($params['time_range'], $clientId),
       'error_stats' => CRM_Emailqueue_Utils_ErrorHandler::getErrorStats($params['time_range']),
       'system_health' => CRM_Emailqueue_Utils_Performance::getSystemHealthCheck($params['time_range']),
-      'charts' => CRM_Emailqueue_Page_DashboardNew::getChartData($params['time_range']),
+      'charts' => CRM_Emailqueue_Page_DashboardNew::getChartData($params['time_range'], $clientId),
     ];
+
     return civicrm_api3_create_success($metrics);
   } catch (Exception $e) {
     throw new API_Exception('Failed to get metrics: ' . $e->getMessage());
@@ -70,7 +102,7 @@ function civicrm_api3_emailqueue_admin_getmetrics($params) {
 }
 
 /**
- * EmailqueueAdmin.Getrecommendations API
+ * EmailqueueAdmin.Getrecommendations API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -80,7 +112,14 @@ function civicrm_api3_emailqueue_admin_getmetrics($params) {
  */
 function civicrm_api3_emailqueue_admin_getrecommendations($params) {
   try {
-    $recommendations = CRM_Emailqueue_Utils_Performance::getOptimizationRecommendations();
+    $clientId = $params['client_id'] ?? null;
+
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
+    $recommendations = CRM_Emailqueue_Utils_Performance::getOptimizationRecommendations($clientId);
     return civicrm_api3_create_success($recommendations);
   } catch (Exception $e) {
     throw new API_Exception('Failed to get recommendations: ' . $e->getMessage());
@@ -88,7 +127,19 @@ function civicrm_api3_emailqueue_admin_getrecommendations($params) {
 }
 
 /**
- * EmailqueueAdmin.Cleanup API
+ * EmailqueueAdmin.Getrecommendations API specification
+ */
+function _civicrm_api3_emailqueue_admin_getrecommendations_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Get recommendations for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
+}
+
+/**
+ * EmailqueueAdmin.Cleanup API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -98,7 +149,22 @@ function civicrm_api3_emailqueue_admin_getrecommendations($params) {
  */
 function civicrm_api3_emailqueue_admin_cleanup($params) {
   try {
+    $clientId = $params['client_id'] ?? null;
+    $allClients = !empty($params['all_clients']);
+
+    // Check admin access for all-clients operations
+    if ($allClients && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      throw new API_Exception('Admin access required for all-clients cleanup');
+    }
+
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
     $options = [
+      'client_id' => $clientId,
+      'all_clients' => $allClients,
       'sent_retention_days' => $params['sent_retention_days'] ?? null,
       'cancelled_retention_days' => $params['cancelled_retention_days'] ?? null,
       'log_retention_days' => $params['log_retention_days'] ?? null,
@@ -125,6 +191,18 @@ function civicrm_api3_emailqueue_admin_cleanup($params) {
  *   Description of fields supported by this API call.
  */
 function _civicrm_api3_emailqueue_admin_cleanup_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Cleanup specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
+  $spec['all_clients'] = [
+    'title' => 'All Clients',
+    'description' => 'Cleanup all clients (admin only)',
+    'type' => CRM_Utils_Type::T_BOOLEAN,
+    'api.required' => 0,
+  ];
   $spec['sent_retention_days'] = [
     'title' => 'Sent Email Retention Days',
     'description' => 'Number of days to keep sent emails',
@@ -158,7 +236,7 @@ function _civicrm_api3_emailqueue_admin_cleanup_spec(&$spec) {
 }
 
 /**
- * EmailqueueAdmin.Analyzehealth API
+ * EmailqueueAdmin.Analyzehealth API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -168,7 +246,14 @@ function _civicrm_api3_emailqueue_admin_cleanup_spec(&$spec) {
  */
 function civicrm_api3_emailqueue_admin_analyzehealth($params) {
   try {
-    $analysis = CRM_Emailqueue_Utils_Cleanup::analyzeDatabaseHealth();
+    $clientId = $params['client_id'] ?? null;
+
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
+    $analysis = CRM_Emailqueue_Utils_Cleanup::analyzeDatabaseHealth($clientId);
     return civicrm_api3_create_success($analysis);
   } catch (Exception $e) {
     throw new API_Exception('Health analysis failed: ' . $e->getMessage());
@@ -176,7 +261,19 @@ function civicrm_api3_emailqueue_admin_analyzehealth($params) {
 }
 
 /**
- * EmailqueueAdmin.Fixissues API
+ * EmailqueueAdmin.Analyzehealth API specification
+ */
+function _civicrm_api3_emailqueue_admin_analyzehealth_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Analyze health for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
+}
+
+/**
+ * EmailqueueAdmin.Fixissues API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -186,7 +283,15 @@ function civicrm_api3_emailqueue_admin_analyzehealth($params) {
  */
 function civicrm_api3_emailqueue_admin_fixissues($params) {
   try {
+    $clientId = $params['client_id'] ?? null;
+
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
     $options = [
+      'client_id' => $clientId,
       'fix_stuck_processing' => !empty($params['fix_stuck_processing']),
       'reset_old_failed' => !empty($params['reset_old_failed']),
       'fix_indexes' => !empty($params['fix_indexes']),
@@ -207,6 +312,12 @@ function civicrm_api3_emailqueue_admin_fixissues($params) {
  *   Description of fields supported by this API call.
  */
 function _civicrm_api3_emailqueue_admin_fixissues_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Fix issues for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
   $spec['fix_stuck_processing'] = [
     'title' => 'Fix Stuck Processing',
     'description' => 'Reset emails stuck in processing status',
@@ -235,7 +346,7 @@ function _civicrm_api3_emailqueue_admin_fixissues_spec(&$spec) {
 }
 
 /**
- * EmailqueueAdmin.Getcleanuprepor API
+ * EmailqueueAdmin.Getcleanuprepor API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -245,11 +356,30 @@ function _civicrm_api3_emailqueue_admin_fixissues_spec(&$spec) {
  */
 function civicrm_api3_emailqueue_admin_getcleanuprepor($params) {
   try {
-    $report = CRM_Emailqueue_Utils_Cleanup::generateCleanupReport();
+    $clientId = $params['client_id'] ?? null;
+
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
+    $report = CRM_Emailqueue_Utils_Cleanup::generateCleanupReport($clientId);
     return civicrm_api3_create_success($report);
   } catch (Exception $e) {
     throw new API_Exception('Failed to generate cleanup report: ' . $e->getMessage());
   }
+}
+
+/**
+ * EmailqueueAdmin.Getcleanuprepor API specification
+ */
+function _civicrm_api3_emailqueue_admin_getcleanuprepor_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Generate cleanup report for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
 }
 
 /**
@@ -299,6 +429,7 @@ function _civicrm_api3_emailqueue_admin_geterrorlogs_spec(&$spec) {
 function civicrm_api3_emailqueue_admin_testsystem($params) {
   try {
     $results = [];
+    $currentClientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
 
     // Test database connection
     try {
@@ -317,6 +448,33 @@ function civicrm_api3_emailqueue_admin_testsystem($params) {
       $results['database_tables'] = 'OK';
     } catch (Exception $e) {
       $results['database_tables'] = 'FAILED: ' . $e->getMessage();
+    }
+
+    // Test client_id configuration
+    try {
+      if (!empty($currentClientId)) {
+        $results['client_configuration'] = "OK (Client ID: {$currentClientId})";
+      } else {
+        $results['client_configuration'] = 'WARNING: No client ID configured';
+      }
+    } catch (Exception $e) {
+      $results['client_configuration'] = 'FAILED: ' . $e->getMessage();
+    }
+
+    // Test multi-client features
+    try {
+      $isMultiClient = CRM_Emailqueue_Config::isMultiClientMode();
+      $hasAdminAccess = CRM_Emailqueue_Config::hasAdminClientAccess();
+
+      $results['multi_client_mode'] = $isMultiClient ? 'ENABLED' : 'DISABLED';
+      $results['admin_client_access'] = $hasAdminAccess ? 'ENABLED' : 'DISABLED';
+
+      if ($hasAdminAccess) {
+        $clientList = CRM_Emailqueue_Config::getClientList();
+        $results['available_clients'] = count($clientList) . ' clients found';
+      }
+    } catch (Exception $e) {
+      $results['multi_client_features'] = 'FAILED: ' . $e->getMessage();
     }
 
     // Test error handling
@@ -357,6 +515,7 @@ function civicrm_api3_emailqueue_admin_testsystem($params) {
     }
 
     $results['overall_status'] = $hasErrors ? 'FAILED' : 'OK';
+    $results['current_client_id'] = $currentClientId;
 
     return civicrm_api3_create_success($results);
   } catch (Exception $e) {
@@ -365,7 +524,7 @@ function civicrm_api3_emailqueue_admin_testsystem($params) {
 }
 
 /**
- * EmailqueueAdmin.Optimizeperformance API
+ * EmailqueueAdmin.Optimizeperformance API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -375,9 +534,18 @@ function civicrm_api3_emailqueue_admin_testsystem($params) {
  */
 function civicrm_api3_emailqueue_admin_optimizeperformance($params) {
   try {
-    $results = [];
+    $clientId = $params['client_id'] ?? null;
 
-    // Optimize database tables
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
+    $results = [
+      'client_id' => $clientId ?: CRM_Emailqueue_BAO_Queue::getCurrentClientId()
+    ];
+
+    // Optimize database tables (affects all clients)
     $optimizeResult = CRM_Emailqueue_Utils_Cleanup::optimizeTables();
     $results['table_optimization'] = $optimizeResult;
 
@@ -393,15 +561,18 @@ function civicrm_api3_emailqueue_admin_optimizeperformance($params) {
 
     // Clean up old data if requested
     if (!empty($params['cleanup_old_data'])) {
-      $cleanupResult = CRM_Emailqueue_Utils_Cleanup::performFullCleanup([
+      $cleanupOptions = [
+        'client_id' => $clientId,
         'batch_size' => 5000 // Smaller batches for optimization
-      ]);
+      ];
+
+      $cleanupResult = CRM_Emailqueue_Utils_Cleanup::performFullCleanup($cleanupOptions);
       $results['cleanup'] = $cleanupResult;
     }
 
     // Generate performance report
-    $results['performance_metrics'] = CRM_Emailqueue_Utils_Performance::getProcessingMetrics();
-    $results['recommendations'] = CRM_Emailqueue_Utils_Performance::getOptimizationRecommendations();
+    $results['performance_metrics'] = CRM_Emailqueue_Utils_Performance::getProcessingMetrics('24 HOUR', $clientId);
+    $results['recommendations'] = CRM_Emailqueue_Utils_Performance::getOptimizationRecommendations($clientId);
 
     return civicrm_api3_create_success($results);
   } catch (Exception $e) {
@@ -416,6 +587,12 @@ function civicrm_api3_emailqueue_admin_optimizeperformance($params) {
  *   Description of fields supported by this API call.
  */
 function _civicrm_api3_emailqueue_admin_optimizeperformance_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Optimize performance for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
   $spec['cleanup_old_data'] = [
     'title' => 'Cleanup Old Data',
     'description' => 'Also perform cleanup of old data during optimization',
@@ -426,7 +603,7 @@ function _civicrm_api3_emailqueue_admin_optimizeperformance_spec(&$spec) {
 }
 
 /**
- * EmailqueueAdmin.Resetfailed API
+ * EmailqueueAdmin.Resetfailed API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -437,9 +614,19 @@ function _civicrm_api3_emailqueue_admin_optimizeperformance_spec(&$spec) {
 function civicrm_api3_emailqueue_admin_resetfailed($params) {
   try {
     $pdo = CRM_Emailqueue_BAO_Queue::getQueueConnection();
+    $clientId = $params['client_id'] ?? null;
 
-    $whereClause = "status = 'failed'";
-    $bindParams = [];
+    // If client_id is specified and user doesn't have admin access, restrict to current client
+    if (!empty($clientId) && !CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
+    if (!$clientId) {
+      $clientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+    }
+
+    $whereClause = "client_id = ? AND status = 'failed'";
+    $bindParams = [$clientId];
 
     // Add optional filters
     if (!empty($params['max_age_days'])) {
@@ -463,12 +650,13 @@ function civicrm_api3_emailqueue_admin_resetfailed($params) {
 
     // Log the bulk action
     if ($resetCount > 0) {
-      CRM_Emailqueue_Utils_ErrorHandler::info("Bulk reset {$resetCount} failed emails via API");
+      CRM_Emailqueue_Utils_ErrorHandler::info("Bulk reset {$resetCount} failed emails for client {$clientId} via API");
     }
 
     return civicrm_api3_create_success([
       'reset_count' => $resetCount,
-      'message' => "Reset {$resetCount} failed emails for retry"
+      'client_id' => $clientId,
+      'message' => "Reset {$resetCount} failed emails for retry for client {$clientId}"
     ]);
 
   } catch (Exception $e) {
@@ -483,6 +671,12 @@ function civicrm_api3_emailqueue_admin_resetfailed($params) {
  *   Description of fields supported by this API call.
  */
 function _civicrm_api3_emailqueue_admin_resetfailed_spec(&$spec) {
+  $spec['client_id'] = [
+    'title' => 'Client ID',
+    'description' => 'Reset failed emails for specific client (admin only)',
+    'type' => CRM_Utils_Type::T_STRING,
+    'api.required' => 0,
+  ];
   $spec['max_age_days'] = [
     'title' => 'Maximum Age in Days',
     'description' => 'Only reset failed emails newer than this many days',
@@ -499,7 +693,7 @@ function _civicrm_api3_emailqueue_admin_resetfailed_spec(&$spec) {
 }
 
 /**
- * EmailqueueAdmin.Getstatus API
+ * EmailqueueAdmin.Getstatus API with client_id support
  *
  * @param array $params
  *   API parameters.
@@ -509,9 +703,14 @@ function _civicrm_api3_emailqueue_admin_resetfailed_spec(&$spec) {
  */
 function civicrm_api3_emailqueue_admin_getstatus($params) {
   try {
+    $currentClientId = CRM_Emailqueue_BAO_Queue::getCurrentClientId();
+
     $status = [
+      'current_client_id' => $currentClientId,
       'extension_enabled' => CRM_Emailqueue_Config::isEnabled(),
       'extension_version' => CRM_Emailqueue_Config::EXTENSION_VERSION,
+      'multi_client_mode' => CRM_Emailqueue_Config::isMultiClientMode(),
+      'admin_client_access' => CRM_Emailqueue_Config::hasAdminClientAccess(),
       'configuration_valid' => TRUE,
       'database_connected' => FALSE,
       'scheduled_job_active' => FALSE,
@@ -531,13 +730,23 @@ function civicrm_api3_emailqueue_admin_getstatus($params) {
       $pdo->query("SELECT 1");
       $status['database_connected'] = TRUE;
 
-      // Get queue stats if connected
+      // Get queue stats for current client
       $status['queue_stats'] = CRM_Emailqueue_BAO_Queue::getQueueStats();
 
-      // Get last processed email
-      $stmt = $pdo->query("SELECT MAX(sent_date) as last_sent FROM email_queue WHERE status = 'sent'");
+      // Get last processed email for current client
+      $stmt = $pdo->prepare("SELECT MAX(sent_date) as last_sent FROM email_queue WHERE client_id = ? AND status = 'sent'");
+      $stmt->execute([$currentClientId]);
       $lastSent = $stmt->fetchColumn();
       $status['last_processed'] = $lastSent;
+
+      // Get client statistics if admin access is enabled
+      if ($status['admin_client_access']) {
+        try {
+          $status['client_statistics'] = CRM_Emailqueue_Config::getClientList();
+        } catch (Exception $e) {
+          $status['client_statistics_error'] = $e->getMessage();
+        }
+      }
 
     }
     catch (Exception $e) {
@@ -576,5 +785,29 @@ function civicrm_api3_emailqueue_admin_getstatus($params) {
   }
   catch (Exception $e) {
     throw new API_Exception('Failed to get system status: ' . $e->getMessage());
+  }
+}
+
+/**
+ * EmailqueueAdmin.Getmulticlientoverview API for admin users
+ *
+ * @param array $params
+ *   API parameters.
+ * @return array
+ *   API result descriptor
+ * @throws API_Exception
+ */
+function civicrm_api3_emailqueue_admin_getmulticlientoverview($params) {
+  try {
+    // Check admin access
+    if (!CRM_Emailqueue_Config::hasAdminClientAccess()) {
+      throw new API_Exception('Admin client access is required to view multi-client overview');
+    }
+
+    $overview = CRM_Emailqueue_Utils_Performance::getMultiClientOverview();
+    return civicrm_api3_create_success($overview);
+  }
+  catch (Exception $e) {
+    throw new API_Exception('Failed to get multi-client overview: ' . $e->getMessage());
   }
 }
