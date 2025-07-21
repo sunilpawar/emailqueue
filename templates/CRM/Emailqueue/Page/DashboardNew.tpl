@@ -6,11 +6,22 @@
       <h1 class="dashboard-title">
         <span class="icon">📊</span>
         {ts}Email Queue Dashboard{/ts}
+        {if $currentClientId}
+          <span class="client-badge">Client: {$currentClientId}</span>
+        {/if}
       </h1>
       <div class="header-meta">
         <span class="timestamp">
           {ts}Last updated:{/ts} {$dashboardData.timestamp|crmDate}
         </span>
+        {if $isMultiClientMode}
+          <div class="client-info">
+            <span class="client-mode-indicator">{ts}Multi-Client Mode{/ts}</span>
+            {if $hasAdminAccess}
+              <span class="admin-badge">{ts}Admin Access{/ts}</span>
+            {/if}
+          </div>
+        {/if}
         {* Auto-refresh indicator
         <div class="auto-refresh">
           <span class="refresh-indicator active"></span>
@@ -21,6 +32,17 @@
     </div>
 
     <div class="dashboard-actions">
+      {if $hasAdminAccess && $availableClients}
+        <div class="client-selector">
+          <select id="client-selector" class="form-select">
+            {foreach from=$availableClients item=client}
+              <option value="{$client.client_id}" {if $client.client_id eq $currentClientId}selected{/if}>
+                {$client.client_id} ({$client.total_emails} emails)
+              </option>
+            {/foreach}
+          </select>
+        </div>
+      {/if}
       <button class="btn btn-primary" id="refresh-dashboard">
         <i class="fas fa-sync"></i> {ts}Refresh{/ts}
       </button>
@@ -393,6 +415,49 @@
       font-weight: 600;
       color: #2c5aa0;
       margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .client-badge {
+      background: #e7f3ff;
+      color: #2c5aa0;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: none;
+    }
+
+    .client-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 12px;
+    }
+
+    .client-mode-indicator {
+      color: #17a2b8;
+      font-weight: 500;
+    }
+
+    .admin-badge {
+      color: #dc3545;
+      font-weight: 500;
+    }
+
+    .client-selector {
+      margin-right: 10px;
+    }
+
+    .client-selector select {
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid #e9ecef;
+      background: white;
+      color: #495057;
+      font-size: 13px;
     }
 
     .dashboard-title .icon {
@@ -935,6 +1000,16 @@
       // Manual refresh button
       $('#refresh-dashboard').click(function() {
         refreshDashboard();
+      });
+
+      // Client selector change
+      $('#client-selector').change(function() {
+        var selectedClientId = $(this).val();
+        if (selectedClientId !== '{$currentClientId}') {
+          var currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set('client_id', selectedClientId);
+          window.location.href = currentUrl.toString();
+        }
       });
 
       function initializeDashboard() {

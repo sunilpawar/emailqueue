@@ -10,15 +10,26 @@
     <div class="label">{ts}System Status{/ts}</div>
     <div class="content">
       {if $currentClientInfo.current_client_id}
-        <div class="crm-info-panel">
+        <div class="crm-info-panel client-info-panel">
           <div class="icon ui-icon-info"></div>
-          <strong>{ts}Current Client:{/ts}</strong> {$currentClientInfo.current_client_id}
-          {if $currentClientInfo.multi_client_mode}
-            <br><strong>{ts}Multi-Client Mode:{/ts}</strong> {ts}Enabled{/ts}
-            {if $currentClientInfo.admin_access}
-              <br><strong>{ts}Admin Access:{/ts}</strong> {ts}Enabled{/ts}
+          <div class="client-info-content">
+            <div class="client-id-display">
+              <strong>{ts}Current Client:{/ts}</strong> 
+              <span class="client-id-value">{$currentClientInfo.current_client_id}</span>
+            </div>
+            {if $currentClientInfo.multi_client_mode}
+              <div class="client-mode-info">
+                <span class="client-mode-badge enabled">{ts}Multi-Client Mode: Enabled{/ts}</span>
+                {if $currentClientInfo.admin_access}
+                  <span class="admin-access-badge enabled">{ts}Admin Access: Enabled{/ts}</span>
+                {/if}
+              </div>
+            {else}
+              <div class="client-mode-info">
+                <span class="client-mode-badge disabled">{ts}Multi-Client Mode: Disabled{/ts}</span>
+              </div>
             {/if}
-          {/if}
+          </div>
         </div>
       {/if}
     </div>
@@ -378,6 +389,63 @@
     .crm-marker {
       color: #d32f2f;
       font-weight: bold;
+    }
+
+    .client-info-panel {
+      display: flex;
+      align-items: flex-start;
+      gap: 15px;
+      padding: 15px;
+    }
+
+    .client-info-content {
+      flex: 1;
+    }
+
+    .client-id-display {
+      margin-bottom: 8px;
+    }
+
+    .client-id-value {
+      background: #2c5aa0;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .client-mode-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .client-mode-badge, .admin-access-badge {
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .client-mode-badge.enabled {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .client-mode-badge.disabled {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .admin-access-badge.enabled {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
     }
   </style>
 {/literal}

@@ -8,7 +8,12 @@
     <a href="{crmURL p='civicrm/admin/emailqueue/settings'}" class="button">{ts}Settings{/ts}</a>
   </div>
 
-  <h3>{ts}Email Queue Monitor{/ts}</h3>
+  <h3>
+    {ts}Email Queue Monitor{/ts}
+    {if $currentClientId}
+      <span class="client-badge">Client: {$currentClientId}</span>
+    {/if}
+  </h3>
 
   {if not $isEnabled}
     <div class="messages warning no-popup">
@@ -76,6 +81,9 @@
             <th>{ts}Created{/ts}</th>
             <th>{ts}Sent{/ts}</th>
             <th>{ts}Retries{/ts}</th>
+            {if $isMultiClientMode && $hasAdminAccess}
+              <th>{ts}Client{/ts}</th>
+            {/if}
             <th>{ts}Actions{/ts}</th>
           </tr>
           </thead>
@@ -102,6 +110,9 @@
               <td>{$email.created_date|crmDate}</td>
               <td>{if $email.sent_date}{$email.sent_date|crmDate}{else}-{/if}</td>
               <td>{$email.retry_count}</td>
+              {if $isMultiClientMode && $hasAdminAccess}
+                <td><span class="client-tag">{$email.client_id|default:'-'}</span></td>
+              {/if}
               <td>
                 {if $email.status == 'pending' or $email.status == 'failed'}
                   <a href="#" class="cancel-email-btn" data-email-id="{$email.id}">{ts}Cancel{/ts}</a>
@@ -152,6 +163,27 @@
 </div>
 
 {literal}
+  <style>
+    .client-badge {
+      background: #e7f3ff;
+      color: #2c5aa0;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-left: 10px;
+    }
+    
+    .client-tag {
+      background: #f8f9fa;
+      color: #495057;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: monospace;
+    }
+  </style>
+
   <script type="text/javascript">
     CRM.$(function($) {
 

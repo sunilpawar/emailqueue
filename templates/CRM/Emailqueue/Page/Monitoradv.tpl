@@ -9,7 +9,15 @@
     <a href="{crmURL p='civicrm/admin/emailqueue/settings'}" class="button button-secondary">{ts}Settings{/ts}</a>
   </div>
 
-  <h3>{ts}Email Queue Monitor{/ts}</h3>
+  <h3>
+    {ts}Email Queue Monitor{/ts}
+    {if $currentClientId}
+      <span class="client-badge">Client: {$currentClientId}</span>
+    {/if}
+    {if $isMultiClientMode}
+      <span class="multi-client-indicator">{ts}Multi-Client Mode{/ts}</span>
+    {/if}
+  </h3>
 
   {if not $isEnabled}
     <div class="messages warning no-popup">
@@ -199,6 +207,9 @@
           <th class="sortable" data-sort="created_date">{ts}Created{/ts}</th>
           <th class="sortable" data-sort="sent_date">{ts}Sent{/ts}</th>
           <th width="80">{ts}Retries{/ts}</th>
+          {if $isMultiClientMode && $hasAdminAccess}
+            <th width="80">{ts}Client{/ts}</th>
+          {/if}
           <th width="150">{ts}Actions{/ts}</th>
         </tr>
         </thead>
@@ -232,6 +243,9 @@
               {if $email.sent_date}{$email.sent_date|crmDate}{else}-{/if}
             </td>
             <td>{$email.retry_count}</td>
+            {if $isMultiClientMode && $hasAdminAccess}
+              <td><span class="client-tag">{$email.client_id|default:'-'}</span></td>
+            {/if}
             <td>
               <a href="#" class="action-link" onclick="previewEmail({$email.id})">{ts}Preview{/ts}</a>
               {if $email.status == 'pending' or $email.status == 'failed'}
@@ -1080,6 +1094,35 @@
       background: #2c5aa0;
       color: white;
       border-color: #2c5aa0;
+    }
+    .client-badge {
+      background: #e7f3ff;
+      color: #2c5aa0;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-left: 10px;
+    }
+
+    .multi-client-indicator {
+      background: #fff3cd;
+      color: #856404;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      margin-left: 10px;
+    }
+
+    .client-tag {
+      background: #f8f9fa;
+      color: #495057;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: monospace;
+      border: 1px solid #e9ecef;
     }
   </style>
 

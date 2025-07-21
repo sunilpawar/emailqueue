@@ -267,18 +267,18 @@ function emailqueue_civicrm_cron($jobManager) {
  */
 function emailqueue_civicrm_permission(&$permissions) {
   $permissions['access email queue'] = [
-    E::ts('Email Queue: Access email queue for current client'),
-    E::ts('Allows viewing and managing email queue for the current client only'),
+    'label' => E::ts('Email Queue: Access email queue for current client'),
+    'description' => E::ts('Allows viewing and managing email queue for the current client only'),
   ];
 
   $permissions['administer email queue'] = [
-    E::ts('Email Queue: Administer email queue system'),
-    E::ts('Allows full administration of the email queue system including settings and multi-client access'),
+    'label' => E::ts('Email Queue: Administer email queue system'),
+    'description' => E::ts('Allows full administration of the email queue system including settings and multi-client access'),
   ];
 
   $permissions['access all clients email queue'] = [
-    E::ts('Email Queue: Access all clients'),
-    E::ts('Allows viewing and managing email queues for all clients (admin access)'),
+    'label' => E::ts('Email Queue: Access all clients'),
+    'description' => E::ts('Allows viewing and managing email queues for all clients (admin access)'),
   ];
 }
 

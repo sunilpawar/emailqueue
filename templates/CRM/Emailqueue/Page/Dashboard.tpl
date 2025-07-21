@@ -6,11 +6,22 @@
       <h1 class="dashboard-title">
         <span class="icon">📊</span>
         {ts}Email Queue Dashboard{/ts}
+        {if $currentClientId}
+          <span class="client-badge">Client: {$currentClientId}</span>
+        {/if}
       </h1>
       <div class="header-meta">
         <span class="timestamp">
           {ts}Last updated:{/ts} {$dashboardData.timestamp|crmDate}
         </span>
+        {if $isMultiClientMode}
+          <div class="client-info">
+            <span class="client-mode-indicator">{ts}Multi-Client Mode{/ts}</span>
+            {if $hasAdminAccess}
+              <span class="admin-badge">{ts}Admin Access{/ts}</span>
+            {/if}
+          </div>
+        {/if}
         <div class="auto-refresh">
           <span class="refresh-indicator active"></span>
           {ts}Auto-refresh: 30s{/ts}
@@ -387,6 +398,36 @@
       font-weight: 600;
       color: #2c5aa0;
       margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .client-badge {
+      background: #e7f3ff;
+      color: #2c5aa0;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: none;
+    }
+
+    .client-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 12px;
+    }
+
+    .client-mode-indicator {
+      color: #17a2b8;
+      font-weight: 500;
+    }
+
+    .admin-badge {
+      color: #dc3545;
+      font-weight: 500;
     }
 
     .dashboard-title .icon {
