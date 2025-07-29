@@ -10,7 +10,6 @@ use CRM_Emailqueue_ExtensionUtil as E;
  * @see https://docs.civicrm.org/dev/en/latest/framework/api-architecture/
  */
 function _civicrm_api3_emailqueue_Processqueue_spec(&$spec) {
-  //$spec['magicword']['api.required'] = 1;
 }
 
 /**
@@ -24,6 +23,10 @@ function _civicrm_api3_emailqueue_Processqueue_spec(&$spec) {
  */
 function civicrm_api3_emailqueue_processqueue($params) {
   try {
+    // Make sure email not send to queue again.
+    global $skipAlterMailerHook;
+    $skipAlterMailerHook = TRUE;
+    // Process the email queue
     CRM_Emailqueue_BAO_Queue::processQueue();
     return civicrm_api3_create_success(['message' => 'Queue processed successfully']);
   } catch (Exception $e) {

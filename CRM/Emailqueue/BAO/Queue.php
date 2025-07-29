@@ -20,7 +20,7 @@ class CRM_Emailqueue_BAO_Queue {
       $password = Civi::settings()->get('emailqueue_db_pass');
 
       try {
-       // $availableDrivers = PDO::getAvailableDrivers();
+        // $availableDrivers = PDO::getAvailableDrivers();
         $option = [PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES 'utf8'"];
         $extra = ';charset=utf8';
         $connection = new PDO('mysql' . ":dbname=" . $dbname . ";host={$host}{$extra}", $username, $password, $option);
@@ -138,6 +138,7 @@ class CRM_Emailqueue_BAO_Queue {
    */
   public static function processQueue() {
     try {
+      // Get the batch size from settings.
       $batchSize = Civi::settings()->get('emailqueue_batch_size');
       $pdo = self::getQueueConnection();
 
@@ -155,7 +156,10 @@ class CRM_Emailqueue_BAO_Queue {
       $stmt->execute();
 
       $emails = $stmt->fetchAll();
-      // Mailer class:
+      if (empty($emails)) {
+        CRM_Core_Error::debug_log_message("No pending emails found in queue");
+        return;
+      }
 
       foreach ($emails as $email) {
         self::processEmail($email);
@@ -180,9 +184,6 @@ class CRM_Emailqueue_BAO_Queue {
       // Mark as processing
       self::updateStatus($email['id'], 'processing');
 
-      // Get SMTP settings from CiviCRM
-      $smtpParams = self::getSmtpSettings();
-
       // Create actual mailer
       $skipAlterMailerHook = TRUE;
       $mailer = self::createSmtpMailer($smtpParams);
@@ -202,16 +203,24 @@ class CRM_Emailqueue_BAO_Queue {
         $headers['Bcc'] = $email['bcc'];
       }
 
-      $body = [];
-      if ($email['body_text']) {
-        $body['text'] = $email['body_text'];
+      // PATCH from civicrm core
+      $driver = ($mailer instanceof CRM_Utils_Mail_FilteredPearMailer) ? $mailer->getDriver() : NULL;
+      $isPhpMail = (get_class($mailer) === "Mail_mail" || $driver === 'mail');
+      if (!$isPhpMail) {
+        // get emails from headers, since these are
+        // combination of name and email addresses.
+        if (!empty($headers['Cc'])) {
+          $to[] = $headers['Cc'] ?? NULL;
+        }
+        if (!empty($headers['Bcc'])) {
+          $to[] = $headers['Bcc'] ?? NULL;
+          unset($headers['Bcc']);
+        }
       }
-      if ($email['body_html']) {
-        $body['html'] = $email['body_html'];
-      }
+      // PATCH END.
 
       // Send email
-      $result = $mailer->send($email['to_email'], $headers, $body);
+      $result = $mailer->send($email['to_email'], $headers, $email['body_html'] ?? '');
 
       if ($result) {
         // Mark as sent
@@ -279,33 +288,17 @@ class CRM_Emailqueue_BAO_Queue {
   }
 
   /**
-   * Get SMTP settings from CiviCRM.
-   */
-  protected static function getSmtpSettings() {
-    return [
-      'host' => civicrm_api3('Setting', 'getvalue', ['name' => 'smtpServer']),
-      'port' => civicrm_api3('Setting', 'getvalue', ['name' => 'smtpPort']),
-      'auth' => civicrm_api3('Setting', 'getvalue', ['name' => 'smtpAuth']),
-      'username' => civicrm_api3('Setting', 'getvalue', ['name' => 'smtpUsername']),
-      'password' => civicrm_api3('Setting', 'getvalue', ['name' => 'smtpPassword']),
-      'localpart' => civicrm_api3('Setting', 'getvalue', ['name' => 'smtpLocalpart']),
-    ];
-  }
-
-  /**
    * Create SMTP mailer.
    */
   protected static function createSmtpMailer($params) {
-    $cacheKey = __FUNCTION__;
     // This would create the actual SMTP mailer using CiviCRM's mail system
     // We bypass the alterMailer hook by creating the mailer directly
-    if (isset(self::$mailerCache[$cacheKey])) {
-      return self::$mailerCache[$cacheKey];
+    if (isset(self::$mailerCache['emailSender'])) {
+      return self::$mailerCache['emailSender'];
     }
-    $originalMailer = CRM_Utils_Mail::createMailer();
-    self::$mailerCache[$cacheKey] = $originalMailer;
+    self::$mailerCache['emailSender'] = \Civi::service('pear_mail');;
 
-    return $originalMailer;
+    return self::$mailerCache['emailSender'];
   }
 
   /**
@@ -378,7 +371,8 @@ class CRM_Emailqueue_BAO_Queue {
           $placeholders = str_repeat('?,', count($params['status']) - 1) . '?';
           $where[] = "status IN ($placeholders)";
           $bindings = array_merge($bindings, $params['status']);
-        } else {
+        }
+        else {
           $where[] = "status = ?";
           $bindings[] = $params['status'];
         }
@@ -386,7 +380,7 @@ class CRM_Emailqueue_BAO_Queue {
 
       if (!empty($params['priority'])) {
         $where[] = "priority = ?";
-        $bindings[] = (int) $params['priority'];
+        $bindings[] = (int)$params['priority'];
       }
 
       // Date range filters
@@ -414,7 +408,8 @@ class CRM_Emailqueue_BAO_Queue {
       if (!empty($params['has_error'])) {
         if ($params['has_error'] === 'yes') {
           $where[] = "error_message IS NOT NULL AND error_message != ''";
-        } else {
+        }
+        else {
           $where[] = "(error_message IS NULL OR error_message = '')";
         }
       }
@@ -422,12 +417,12 @@ class CRM_Emailqueue_BAO_Queue {
       // Retry count filter
       if (isset($params['min_retries'])) {
         $where[] = "retry_count >= ?";
-        $bindings[] = (int) $params['min_retries'];
+        $bindings[] = (int)$params['min_retries'];
       }
 
       if (isset($params['max_retries'])) {
         $where[] = "retry_count <= ?";
-        $bindings[] = (int) $params['max_retries'];
+        $bindings[] = (int)$params['max_retries'];
       }
 
       // Build the query
@@ -440,8 +435,8 @@ class CRM_Emailqueue_BAO_Queue {
       $totalCount = $countStmt->fetch()['total'];
 
       // Set defaults for pagination
-      $limit = isset($params['limit']) ? (int) $params['limit'] : 50;
-      $offset = isset($params['offset']) ? (int) $params['offset'] : 0;
+      $limit = isset($params['limit']) ? (int)$params['limit'] : 50;
+      $offset = isset($params['offset']) ? (int)$params['offset'] : 0;
       $orderBy = isset($params['order_by']) ? $params['order_by'] : 'created_date';
       $orderDir = isset($params['order_dir']) && strtoupper($params['order_dir']) === 'ASC' ? 'ASC' : 'DESC';
 
@@ -480,7 +475,8 @@ class CRM_Emailqueue_BAO_Queue {
         'total_pages' => ceil($totalCount / $limit)
       ];
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Search Error: ' . $e->getMessage());
       throw $e;
     }
@@ -511,7 +507,7 @@ class CRM_Emailqueue_BAO_Queue {
       }
 
       // Parse headers
-      $headers = json_decode($email['headers'], true) ?: [];
+      $headers = json_decode($email['headers'], TRUE) ?: [];
       $email['parsed_headers'] = $headers;
       $parser = new CRM_Emailqueue_Utils_EmailParser();
       $priorityLevels = CRM_Emailqueue_Config::getPriorityLevels();
@@ -535,7 +531,8 @@ class CRM_Emailqueue_BAO_Queue {
 
       return $email;
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Preview Error: ' . $e->getMessage());
       throw $e;
     }
@@ -575,7 +572,8 @@ class CRM_Emailqueue_BAO_Queue {
         'from_emails' => $fromEmails
       ];
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Filter Options Error: ' . $e->getMessage());
       return [
         'statuses' => ['pending', 'processing', 'sent', 'failed', 'cancelled'],
@@ -620,7 +618,8 @@ class CRM_Emailqueue_BAO_Queue {
 
       return $csvData;
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Export Error: ' . $e->getMessage());
       throw $e;
     }
@@ -678,11 +677,10 @@ class CRM_Emailqueue_BAO_Queue {
 
       return $affectedRows;
 
-    } catch (Exception $e) {
+    }
+    catch (Exception $e) {
       CRM_Core_Error::debug_log_message('Email Queue Bulk Action Error: ' . $e->getMessage());
       throw $e;
     }
   }
-
-
 }
