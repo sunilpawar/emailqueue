@@ -276,7 +276,7 @@ class CRM_Emailqueue_BAO_Queue {
   /**
    * Log action to email queue log.
    */
-  protected static function logAction($queueId, $action, $message) {
+  public static function logAction($queueId, $action, $message) {
     try {
       $pdo = self::getQueueConnection();
       $sql = "INSERT INTO email_queue_log (queue_id, action, message, created_date) VALUES (?, ?, ?, NOW())";
