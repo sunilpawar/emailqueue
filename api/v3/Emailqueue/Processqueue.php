@@ -13,7 +13,13 @@ function _civicrm_api3_emailqueue_Processqueue_spec(&$spec) {
 }
 
 /**
- * Emailqueue.Processqueue API
+ * Process the email queue - Main API function
+ *
+ * This API processes queued emails that are waiting to be sent. It's typically
+ * called by cron jobs or scheduled tasks to handle bulk email delivery.
+ *
+ * The function prevents infinite loops by setting a global flag to skip
+ * the mail alter hook, then delegates the actual processing to the BAO class.
  *
  * @param array $params
  *   API parameters.
@@ -23,10 +29,24 @@ function _civicrm_api3_emailqueue_Processqueue_spec(&$spec) {
  */
 function civicrm_api3_emailqueue_processqueue($params) {
   try {
-    // Make sure email not send to queue again.
+    /**
+     * Prevent recursive email processing
+     *
+     * The $skipAlterMailerHook global variable prevents the extension's
+     * hook_civicrm_alterMailer from being triggered during queue processing.
+     * This is crucial because:
+     * 1. It prevents emails from being re-queued while processing the queue
+     * 2. Avoids infinite loops during bulk email operations
+     * 3. Ensures direct email delivery during queue processing
+     */
     global $skipAlterMailerHook;
     $skipAlterMailerHook = TRUE;
-    // Process the email queue
+
+    /**
+     * Delegate queue processing to Business Access Object (BAO)
+     *
+     * The actual queue processing logic is handled by the BAO class.
+     */
     CRM_Emailqueue_BAO_Queue::processQueue();
     return civicrm_api3_create_success(['message' => 'Queue processed successfully']);
   } catch (Exception $e) {
