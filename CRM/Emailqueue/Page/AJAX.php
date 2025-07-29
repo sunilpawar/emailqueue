@@ -8,7 +8,7 @@ use CRM_Emailqueue_ExtensionUtil as E;
 class CRM_Emailqueue_Page_AJAX extends CRM_Core_Page {
 
   public function run() {
-    $action = CRM_Utils_Request::retrieve('action', 'String');
+    $action = CRM_Utils_Request::retrieve('toDoAction', 'String');
 
     // Set JSON headers
     header('Content-Type: application/json');

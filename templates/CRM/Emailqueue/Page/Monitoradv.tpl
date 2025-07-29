@@ -1296,7 +1296,7 @@
 
         // Get current search parameters
         var searchParams = new URLSearchParams(window.location.search);
-        var exportUrl = CRM.url('civicrm/ajax/emailqueue/action', {action: 'export'});
+        var exportUrl = CRM.url('civicrm/ajax/emailqueue/action', {toDoAction: 'export'});
 
         // Add search parameters to export URL
         searchParams.forEach(function(value, key) {
@@ -1342,7 +1342,7 @@
         $btn.text(loadingText).prop('disabled', true);
         $result.html('');
 
-        var params = {action: action};
+        var params = {toDoAction: action};
         if (extraParams) {
           $.extend(params, extraParams);
         }

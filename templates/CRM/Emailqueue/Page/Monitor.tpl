@@ -185,7 +185,7 @@
         $btn.text(loadingText).prop('disabled', true);
         $result.html('');
 
-        var params = {action: action};
+        var params = {toDoAction: action};
         if (extraParams) {
           $.extend(params, extraParams);
         }
