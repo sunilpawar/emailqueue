@@ -17,7 +17,7 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
     // Note: We don't create tables here because we use a separate database
 
     // Add scheduled job
-    $this->addScheduledJob();
+    // $this->addScheduledJob();
 
     // Log installation
     CRM_Core_Error::debug_log_message('Email Queue Extension installed successfully');
@@ -28,7 +28,7 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   public function uninstall() {
     // Remove scheduled job
-    $this->removeScheduledJob();
+    // $this->removeScheduledJob();
 
     // Clean up settings (keep DB connection settings for manual cleanup)
     $this->cleanupSettings();
@@ -44,7 +44,7 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   public function enable() {
     // Re-enable scheduled job
-    $this->enableScheduledJob();
+    // $this->enableScheduledJob();
 
     CRM_Core_Error::debug_log_message('Email Queue Extension enabled');
   }
@@ -54,7 +54,7 @@ class CRM_Emailqueue_Upgrader extends CRM_Extension_Upgrader_Base {
    */
   public function disable() {
     // Disable but don't remove scheduled job
-    $this->disableScheduledJob();
+    // $this->disableScheduledJob();
 
     CRM_Core_Error::debug_log_message('Email Queue Extension disabled');
   }

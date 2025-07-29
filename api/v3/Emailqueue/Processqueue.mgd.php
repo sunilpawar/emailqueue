@@ -9,12 +9,11 @@ return [
     'entity' => 'Job',
     'params' => [
       'version' => 3,
-      'name' => 'Call Emailqueue.Processqueue API',
-      'description' => 'Call Emailqueue.Processqueue API',
-      'run_frequency' => 'Daily',
+      'name' => 'Email Queue Processor',
+      'description' => 'Process emails in the email queue',
+      'run_frequency' => 'Always',
       'api_entity' => 'Emailqueue',
       'api_action' => 'Processqueue',
-      'parameters' => '',
     ],
   ],
 ];

@@ -454,10 +454,14 @@ class CRM_Emailqueue_Utils_Performance {
       }
 
       // Check scheduled job
-      $jobId = Civi::settings()->get('emailqueue_job_id');
+      $resultJob = civicrm_api3('Job', 'get', [
+        'api_entity' => "Emailqueue",
+        'api_action' => "processqueue",
+      ]);
+      $jobId = $resultJob['id'] ?? NULL;
       if ($jobId) {
         try {
-          $job = civicrm_api3('Job', 'getsingle', ['id' => $jobId]);
+          $job = reset($resultJob['values']);
           if ($job['is_active']) {
             $health['checks'][] = ['name' => 'Scheduled Job', 'status' => 'ok', 'message' => 'Scheduled job is active'];
           }

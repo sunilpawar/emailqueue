@@ -17,7 +17,7 @@ This extension provides an alternative email system for CiviCRM that queues emai
 1. **Download and Install**:
    ```bash
    cd /path/to/civicrm/ext
-   git clone [repository-url] com.yourorg.emailqueue
+   git clone [repository-url] com.skvare.emailqueue
    ```
 
 2. **Install via CiviCRM**:
@@ -44,6 +44,8 @@ Navigate to **Mailings → Email Queue Settings** and configure:
 - **Database Password**: Database user password
 - **Batch Size**: Number of emails to process per cron run (default: 50)
 - **Max Retry Attempts**: Maximum retry attempts for failed emails (default: 3)
+
+![Screenshot](/images/emailqueue_setting.png)
 
 ### 2. Test Database Connection
 
@@ -116,6 +118,10 @@ Access the monitor at **Mailings → Email Queue Monitor** to:
 - Retry failed emails
 - Cancel pending emails
 
+![Screenshot](/images/emailqueue_monitor.png)
+
+![Screenshot](/images/emailqueue_dashboard.png)
+
 ### Queue Statistics
 
 The monitor shows:
@@ -126,18 +132,6 @@ The monitor shows:
 - **Cancelled**: Manually cancelled emails
 
 ## API Usage
-
-### Add Email to Queue
-```php
-$result = civicrm_api3('Emailqueue', 'addtoqueue', [
-  'to_email' => 'recipient@example.com',
-  'subject' => 'Test Subject',
-  'from_email' => 'sender@example.com',
-  'body_html' => '<p>HTML content</p>',
-  'body_text' => 'Plain text content',
-  'priority' => 1, // 1-5, 1 being highest priority
-]);
-```
 
 ### Process Queue Manually
 ```php
@@ -203,11 +197,6 @@ Check CiviCRM logs for email queue related errors:
 Process queue via API:
 ```bash
 cv api3 Emailqueue.processqueue
-```
-
-Or via URL:
-```
-https://yoursite.com/civicrm/ajax/emailqueue/action?action=process_queue
 ```
 
 ## Security Considerations
